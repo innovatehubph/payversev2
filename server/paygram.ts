@@ -356,7 +356,7 @@ export async function registerPaygramUser(username: string): Promise<{ success: 
       body: JSON.stringify({
         requestId: generateRequestId(),
         userCliId: username,
-        callbackUrl: "https://payverse.innovatehub.site/api/crypto/callback"
+        callbackUrl: process.env.APP_URL ? `${process.env.APP_URL}/api/crypto/callback` : "https://payverse.ph/api/crypto/callback"
       })
     });
 

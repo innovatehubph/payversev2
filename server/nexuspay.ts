@@ -309,7 +309,7 @@ export function registerNexusPayRoutes(app: Express) {
       // Use PUBLIC_APP_URL for production, fallback to dev domain or default
       const appBaseUrl = process.env.PUBLIC_APP_URL
         || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
-        || "https://payverse.innovatehub.site";
+        || "https://payverse.ph";
 
       const webhookUrl = `${appBaseUrl}/api/nexuspay/webhook`;
       console.log(`[NexusPay] Using webhook URL: ${webhookUrl}`);

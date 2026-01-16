@@ -16,7 +16,7 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: process.env.PUBLIC_APP_URL || "https://payverse.innovatehub.site",
+        url: process.env.PUBLIC_APP_URL || "https://payverse.ph",
         description: "Production Server"
       }
     ],

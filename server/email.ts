@@ -2,10 +2,13 @@ import nodemailer from "nodemailer";
 
 // Logo is served from the app's public folder - computed at runtime
 function getLogoUrl(): string {
-  const appUrl = process.env.REPLIT_DEV_DOMAIN 
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.APP_URL || "https://payverse.replit.app";
+  const appUrl = process.env.APP_URL || "https://payverse.ph";
   return `${appUrl}/payverse_logo.png`;
+}
+
+// Get the app base URL for email links
+function getAppUrl(): string {
+  return process.env.APP_URL || "https://payverse.ph";
 }
 const APP_NAME = "PayVerse";
 const PRIMARY_COLOR = "#7C3AED";
@@ -143,7 +146,7 @@ export const emailTemplates = {
       </table>
       
       <div style="text-align: center;">
-        <a href="https://payverse.innovatehub.site/dashboard" class="btn">View Your Wallet</a>
+        <a href="https://payverse.ph/dashboard" class="btn">View Your Wallet</a>
       </div>
     `, `Your deposit of ₱${data.amount} has been approved!`),
   }),
@@ -168,7 +171,7 @@ export const emailTemplates = {
       <p>If you believe this was a mistake or have questions, please contact our support team. You may also submit a new deposit request with the correct information.</p>
       
       <div style="text-align: center;">
-        <a href="https://payverse.innovatehub.site/manual-deposit" class="btn">Try Again</a>
+        <a href="https://payverse.ph/manual-deposit" class="btn">Try Again</a>
       </div>
     `, `Your deposit request was not approved`),
   }),
@@ -232,7 +235,7 @@ export const emailTemplates = {
       </table>
       
       <div style="text-align: center;">
-        <a href="https://payverse.innovatehub.site/dashboard" class="btn">View Your Wallet</a>
+        <a href="https://payverse.ph/dashboard" class="btn">View Your Wallet</a>
       </div>
     `, `${data.senderName} sent you ₱${data.amount}`),
   }),
@@ -263,7 +266,7 @@ export const emailTemplates = {
       </table>
       
       <div style="text-align: center;">
-        <a href="https://payverse.innovatehub.site/history" class="btn">View Transaction History</a>
+        <a href="https://payverse.ph/history" class="btn">View Transaction History</a>
       </div>
     `, `Transfer to ${data.recipientName} complete`),
   }),
@@ -286,7 +289,7 @@ export const emailTemplates = {
       </div>
       
       <div style="text-align: center;">
-        <a href="https://payverse.innovatehub.site/dashboard" class="btn">Get Started</a>
+        <a href="https://payverse.ph/dashboard" class="btn">Get Started</a>
       </div>
       
       <p style="margin-top: 24px;">If you need any help, our support team is here for you!</p>
@@ -401,7 +404,7 @@ export const emailTemplates = {
       </div>
       
       <div style="text-align: center;">
-        <a href="https://payverse.replit.app/settings" class="btn">Review Security Settings</a>
+        <a href="https://payverse.ph/settings" class="btn">Review Security Settings</a>
       </div>
     `, `New login from ${data.deviceInfo}`),
   }),
@@ -455,7 +458,7 @@ export const emailTemplates = {
       </table>
       
       <div style="text-align: center;">
-        <a href="https://payverse.replit.app/history" class="btn">View Transaction History</a>
+        <a href="https://payverse.ph/history" class="btn">View Transaction History</a>
       </div>
     `, `Withdrawal of ₱${data.amount} completed`),
   }),
@@ -481,7 +484,7 @@ export const emailTemplates = {
       </div>
       
       <div style="text-align: center;">
-        <a href="https://payverse.replit.app/dashboard" class="btn">Go to Dashboard</a>
+        <a href="https://payverse.ph/dashboard" class="btn">Go to Dashboard</a>
       </div>
     `, `Your KYC verification is approved!`),
   }),
@@ -510,7 +513,7 @@ export const emailTemplates = {
       </ul>
       
       <div style="text-align: center;">
-        <a href="https://payverse.replit.app/kyc" class="btn">Resubmit Documents</a>
+        <a href="https://payverse.ph/kyc" class="btn">Resubmit Documents</a>
       </div>
     `, `Action required: KYC verification`),
   }),
