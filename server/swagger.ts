@@ -78,12 +78,13 @@ const options: swaggerJsdoc.Options = {
       { name: "Wallet", description: "Wallet balance and PayGram integration" },
       { name: "Transfers", description: "P2P PHPT transfers between users" },
       { name: "QRPH", description: "NexusPay QRPH cash-in (deposit) and cash-out (withdraw)" },
-      { name: "Casino", description: "747Live casino buy/sell chips integration" },
+      { name: "Casino", description: "747Live casino buy/sell chips integration (PIN required)" },
       { name: "Crypto", description: "PayGram cryptocurrency operations (Telegram top-up, invoices, etc.)" },
       { name: "Security", description: "PIN setup, verification, and password management" },
       { name: "KYC", description: "Know Your Customer verification" },
       { name: "Admin", description: "Admin dashboard and user management" },
-      { name: "Manual Deposits", description: "Manual P2P deposit system" }
+      { name: "Manual Deposits", description: "Manual P2P deposit system" },
+      { name: "Manual Withdrawals", description: "Manual withdrawal to bank/e-wallet accounts" }
     ],
     paths: {
       "/api/auth/register": {
@@ -1901,6 +1902,270 @@ const options: swaggerJsdoc.Options = {
             "200": { description: "KYC reviewed" }
           }
         }
+      },
+      // Manual Withdrawal Endpoints
+      "/api/manual/bank-accounts": {
+        get: {
+          tags: ["Manual Withdrawals"],
+          summary: "Get user's saved bank/e-wallet accounts",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "List of user's bank accounts" }
+          }
+        },
+        post: {
+          tags: ["Manual Withdrawals"],
+          summary: "Add a new bank/e-wallet account",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["accountType", "accountNumber", "accountName"],
+                  properties: {
+                    accountType: { type: "string", enum: ["gcash", "maya", "bank", "grabpay"], example: "gcash" },
+                    bankName: { type: "string", description: "Required for bank type", example: "BDO" },
+                    accountNumber: { type: "string", example: "09171234567" },
+                    accountName: { type: "string", example: "Juan Dela Cruz" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Bank account added" },
+            "400": { description: "Validation error" }
+          }
+        }
+      },
+      "/api/manual/bank-accounts/{id}": {
+        patch: {
+          tags: ["Manual Withdrawals"],
+          summary: "Update a bank account",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          responses: {
+            "200": { description: "Bank account updated" }
+          }
+        },
+        delete: {
+          tags: ["Manual Withdrawals"],
+          summary: "Delete a bank account",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          responses: {
+            "200": { description: "Bank account deleted" }
+          }
+        }
+      },
+      "/api/manual/bank-accounts/{id}/set-default": {
+        post: {
+          tags: ["Manual Withdrawals"],
+          summary: "Set bank account as default",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          responses: {
+            "200": { description: "Default account updated" }
+          }
+        }
+      },
+      "/api/manual/withdrawals": {
+        post: {
+          tags: ["Manual Withdrawals"],
+          summary: "Submit a withdrawal request",
+          description: "Request withdrawal to a saved bank account. PHPT is held in escrow until admin processes. Requires PIN.",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["userBankAccountId", "amount", "pin"],
+                  properties: {
+                    userBankAccountId: { type: "integer", description: "ID of saved bank account" },
+                    amount: { type: "number", minimum: 1, maximum: 50000, example: 1000 },
+                    pin: { type: "string", description: "6-digit PIN" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Withdrawal request submitted" },
+            "400": { description: "Insufficient balance or invalid PIN" }
+          }
+        }
+      },
+      "/api/manual/withdrawals/my": {
+        get: {
+          tags: ["Manual Withdrawals"],
+          summary: "Get user's withdrawal history",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "List of user's withdrawals" }
+          }
+        }
+      },
+      "/api/manual/admin/withdrawals": {
+        get: {
+          tags: ["Admin"],
+          summary: "Get all withdrawal requests (admin)",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "All withdrawals" }
+          }
+        }
+      },
+      "/api/manual/admin/withdrawals/pending": {
+        get: {
+          tags: ["Admin"],
+          summary: "Get pending withdrawal requests (admin)",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "Pending withdrawals" }
+          }
+        }
+      },
+      "/api/manual/admin/withdrawals/{id}/process": {
+        post: {
+          tags: ["Admin"],
+          summary: "Mark withdrawal as processing",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    adminNote: { type: "string" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Withdrawal marked as processing" }
+          }
+        }
+      },
+      "/api/manual/admin/withdrawals/{id}/complete": {
+        post: {
+          tags: ["Admin"],
+          summary: "Complete withdrawal (mark as paid)",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    adminNote: { type: "string" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Withdrawal completed" }
+          }
+        }
+      },
+      "/api/manual/admin/withdrawals/{id}/reject": {
+        post: {
+          tags: ["Admin"],
+          summary: "Reject withdrawal and refund PHPT",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["rejectionReason"],
+                  properties: {
+                    rejectionReason: { type: "string" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Withdrawal rejected and PHPT refunded" }
+          }
+        }
+      },
+      // Admin PIN Management
+      "/api/admin/users/{id}/pin-status": {
+        get: {
+          tags: ["Admin"],
+          summary: "Get user's PIN status (admin)",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          responses: {
+            "200": {
+              description: "PIN status",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      hasPinSetup: { type: "boolean" },
+                      pinFailedAttempts: { type: "integer" },
+                      pinLockedUntil: { type: "string", format: "date-time" },
+                      isLocked: { type: "boolean" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/admin/users/{id}/unlock-pin": {
+        post: {
+          tags: ["Admin"],
+          summary: "Unlock user's PIN (reset failed attempts)",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          responses: {
+            "200": { description: "PIN unlocked" }
+          }
+        }
+      },
+      "/api/admin/users/{id}/reset-pin": {
+        post: {
+          tags: ["Admin"],
+          summary: "Reset user's PIN (user must set up new PIN)",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" } }
+          ],
+          responses: {
+            "200": { description: "PIN reset, user must set up new PIN" }
+          }
+        }
       }
     }
   },
@@ -1909,8 +2174,474 @@ const options: swaggerJsdoc.Options = {
 
 const swaggerSpec = swaggerJsdoc(options);
 
+// Professional GitBook/MkDocs-style documentation page
+const docsHtml = `
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PayVerse Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #5C6AC4;
+      --primary-dark: #4959BD;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f6f8fa;
+      --bg-sidebar: #f6f8fa;
+      --text-primary: #24292f;
+      --text-secondary: #57606a;
+      --text-muted: #8b949e;
+      --border: #d0d7de;
+      --border-light: #e8e8e8;
+      --code-bg: #f6f8fa;
+      --success: #1a7f37;
+      --warning: #9a6700;
+      --error: #cf222e;
+      --info: #0969da;
+    }
+    [data-theme="dark"] {
+      --primary: #7C8AE4;
+      --primary-dark: #9BA6F5;
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-sidebar: #010409;
+      --text-primary: #c9d1d9;
+      --text-secondary: #8b949e;
+      --text-muted: #6e7681;
+      --border: #30363d;
+      --border-light: #21262d;
+      --code-bg: #161b22;
+      --success: #3fb950;
+      --warning: #d29922;
+      --error: #f85149;
+      --info: #58a6ff;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; font-size: 15px; }
+
+    /* Layout */
+    .layout { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar { width: 280px; background: var(--bg-sidebar); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; z-index: 100; transition: transform 0.3s; }
+    .sidebar-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+    .sidebar-logo { width: 32px; height: 32px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; }
+    .sidebar-title { font-weight: 600; font-size: 16px; }
+    .sidebar-nav { padding: 16px 0; }
+    .nav-section { padding: 8px 24px; }
+    .nav-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 8px; }
+    .nav-link { display: flex; align-items: center; gap: 10px; padding: 8px 24px; color: var(--text-secondary); text-decoration: none; font-size: 14px; transition: all 0.15s; border-left: 3px solid transparent; }
+    .nav-link:hover { color: var(--text-primary); background: var(--bg-secondary); }
+    .nav-link.active { color: var(--primary); background: rgba(92, 106, 196, 0.08); border-left-color: var(--primary); font-weight: 500; }
+    .nav-icon { width: 18px; height: 18px; opacity: 0.7; }
+
+    /* Main Content */
+    .main { flex: 1; margin-left: 280px; }
+    .header { position: sticky; top: 0; background: var(--bg-primary); border-bottom: 1px solid var(--border); padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; z-index: 50; backdrop-filter: blur(8px); }
+    .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; width: 320px; }
+    .search-box input { border: none; background: transparent; outline: none; color: var(--text-primary); width: 100%; font-size: 14px; }
+    .search-box input::placeholder { color: var(--text-muted); }
+    .header-actions { display: flex; align-items: center; gap: 12px; }
+    .theme-toggle { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 14px; color: var(--text-secondary); transition: all 0.15s; }
+    .theme-toggle:hover { background: var(--border-light); }
+    .btn-primary { background: var(--primary); color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: background 0.15s; }
+    .btn-primary:hover { background: var(--primary-dark); }
+
+    /* Content Area */
+    .content { max-width: 900px; margin: 0 auto; padding: 48px 32px; }
+    .content h1 { font-size: 2.25rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em; }
+    .content h2 { font-size: 1.5rem; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .content h3 { font-size: 1.125rem; font-weight: 600; margin: 32px 0 12px; }
+    .content p { margin: 16px 0; color: var(--text-secondary); }
+    .content ul, .content ol { margin: 16px 0 16px 24px; color: var(--text-secondary); }
+    .content li { margin: 8px 0; }
+    .lead { font-size: 1.125rem; color: var(--text-secondary); margin-bottom: 32px; }
+
+    /* Code */
+    code { font-family: 'JetBrains Mono', monospace; font-size: 13px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-light); }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; overflow-x: auto; margin: 16px 0; }
+    pre code { background: transparent; border: none; padding: 0; font-size: 13px; line-height: 1.7; }
+
+    /* Cards */
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 24px 0; }
+    .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; transition: all 0.2s; }
+    .card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .card-icon { width: 40px; height: 40px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 16px; }
+    .card h4 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .card p { font-size: 14px; color: var(--text-muted); margin: 0; }
+
+    /* Badges */
+    .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; margin: 4px 4px 4px 0; }
+    .badge-success { background: rgba(26, 127, 55, 0.1); color: var(--success); }
+    .badge-warning { background: rgba(154, 103, 0, 0.1); color: var(--warning); }
+    .badge-info { background: rgba(9, 105, 218, 0.1); color: var(--info); }
+    .badge-error { background: rgba(207, 34, 46, 0.1); color: var(--error); }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14px; }
+    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--bg-secondary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+    tr:hover td { background: var(--bg-secondary); }
+
+    /* Callouts */
+    .callout { padding: 16px 20px; border-radius: 8px; margin: 24px 0; border-left: 4px solid; }
+    .callout-info { background: rgba(9, 105, 218, 0.05); border-color: var(--info); }
+    .callout-warning { background: rgba(154, 103, 0, 0.05); border-color: var(--warning); }
+    .callout-success { background: rgba(26, 127, 55, 0.05); border-color: var(--success); }
+    .callout-title { font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .callout p { margin: 0; font-size: 14px; }
+
+    /* Steps */
+    .steps { counter-reset: step; margin: 24px 0; }
+    .step { display: flex; gap: 16px; margin: 20px 0; padding-left: 8px; }
+    .step::before { counter-increment: step; content: counter(step); min-width: 28px; height: 28px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+    .step-content h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .step-content p { margin: 0; font-size: 14px; color: var(--text-muted); }
+
+    /* Footer */
+    .footer { border-top: 1px solid var(--border); padding: 32px; margin-top: 64px; text-align: center; color: var(--text-muted); font-size: 14px; }
+    .footer a { color: var(--primary); text-decoration: none; }
+
+    /* Mobile */
+    .menu-toggle { display: none; background: none; border: none; padding: 8px; cursor: pointer; }
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main { margin-left: 0; }
+      .menu-toggle { display: block; }
+      .search-box { width: 200px; }
+      .content { padding: 24px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">P</div>
+        <span class="sidebar-title">PayVerse Docs</span>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Getting Started</div>
+          <a href="#introduction" class="nav-link active">Introduction</a>
+          <a href="#quickstart" class="nav-link">Quick Start</a>
+          <a href="#authentication" class="nav-link">Authentication</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Features</div>
+          <a href="#transfers" class="nav-link">P2P Transfers</a>
+          <a href="#qrph" class="nav-link">QRPH Cash In/Out</a>
+          <a href="#casino" class="nav-link">747 Casino</a>
+          <a href="#withdrawals" class="nav-link">Manual Withdrawals</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Security</div>
+          <a href="#pin" class="nav-link">PIN Protection</a>
+          <a href="#kyc" class="nav-link">KYC Verification</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">API Reference</div>
+          <a href="/api/swagger" class="nav-link">Swagger UI</a>
+          <a href="#endpoints" class="nav-link">Key Endpoints</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="header">
+        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" placeholder="Search documentation..." disabled>
+        </div>
+        <div class="header-actions">
+          <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+          <a href="/api/swagger" class="btn-primary">API Docs</a>
+        </div>
+      </header>
+
+      <article class="content">
+        <section id="introduction">
+          <h1>PayVerse Documentation</h1>
+          <p class="lead">Complete guide to using the PayVerse E-Wallet Platform - a production-ready P2P payment system with PHPT cryptocurrency integration.</p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card-icon">💸</div>
+              <h4>P2P Transfers</h4>
+              <p>Send PHPT instantly to any PayVerse user with PIN protection.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">📱</div>
+              <h4>QRPH Integration</h4>
+              <p>Cash in via InstaPay/PESONet, cash out to GCash, Maya, GrabPay.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">🎰</div>
+              <h4>747 Casino</h4>
+              <p>Buy and sell casino chips for players and agents.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">🔐</div>
+              <h4>Secure by Design</h4>
+              <p>PIN verification, email OTP, and KYC for large transfers.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="quickstart">
+          <h2>Quick Start</h2>
+          <p>Get started with PayVerse in four simple steps:</p>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-content">
+                <h4>Create an Account</h4>
+                <p>Register with your email, full name, and username. Set up a 6-digit PIN during registration.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Verify Your Email</h4>
+                <p>Check your inbox for a welcome email from PayVerse to confirm your account.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Add Funds</h4>
+                <p>Top up via QRPH (InstaPay/PESONet), Telegram PayGram, or manual deposit.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-content">
+                <h4>Start Transacting</h4>
+                <p>Send PHPT to other users, cash out to e-wallets, or use 747 Casino.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="authentication">
+          <h2>Authentication</h2>
+          <p>All API requests (except login/register) require a Bearer token in the Authorization header.</p>
+
+          <pre><code>Authorization: Bearer your_token_here</code></pre>
+
+          <div class="callout callout-info">
+            <div class="callout-title">ℹ️ Getting Your Token</div>
+            <p>Call <code>POST /api/auth/login</code> with your email and password to receive a bearer token.</p>
+          </div>
+
+          <h3>Login Example</h3>
+          <pre><code>POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "yourpassword"
+}</code></pre>
+        </section>
+
+        <section id="transfers">
+          <h2>P2P Transfers</h2>
+          <p>Send PHPT instantly to any PayVerse user. All transfers require PIN verification.</p>
+
+          <div class="callout callout-warning">
+            <div class="callout-title">⚠️ PIN Required</div>
+            <p>All financial transactions require your 6-digit PIN for security.</p>
+          </div>
+
+          <h3>Send PHPT</h3>
+          <pre><code>POST /api/transfer
+Authorization: Bearer your_token
+Content-Type: application/json
+
+{
+  "receiverId": 123,
+  "amount": "100.00",
+  "note": "Payment for lunch",
+  "pin": "123456"
+}</code></pre>
+
+          <p><span class="badge badge-success">Instant</span> <span class="badge badge-info">PIN Protected</span></p>
+        </section>
+
+        <section id="qrph">
+          <h2>QRPH Cash In/Out</h2>
+          <p>Deposit PHP via QR code and withdraw to GCash, Maya, or GrabPay.</p>
+
+          <h3>Cash In (Deposit)</h3>
+          <pre><code>POST /api/nexuspay/cashin
+{
+  "amount": 500
+}</code></pre>
+          <p>Returns a QR code for payment via InstaPay/PESONet. PHPT is credited 1:1 after payment.</p>
+
+          <h3>Cash Out (Withdraw)</h3>
+          <pre><code>POST /api/nexuspay/cashout
+{
+  "amount": 500,
+  "accountNumber": "09171234567",
+  "provider": "gcash",
+  "pin": "123456"
+}</code></pre>
+          <p><span class="badge badge-success">1:1 Rate</span> <span class="badge badge-warning">Min ₱100</span></p>
+        </section>
+
+        <section id="casino">
+          <h2>747 Live Casino</h2>
+          <p>Buy and sell casino chips instantly. Works for both players and agents.</p>
+
+          <h3>Buy Chips (Deposit)</h3>
+          <pre><code>POST /api/casino/deposit
+{
+  "amount": 500,
+  "pin": "123456"
+}</code></pre>
+
+          <h3>Sell Chips (Withdraw)</h3>
+          <pre><code>POST /api/casino/withdraw
+{
+  "amount": 500,
+  "pin": "123456"
+}</code></pre>
+
+          <p><span class="badge badge-info">PIN Required</span> <span class="badge badge-success">Instant</span></p>
+        </section>
+
+        <section id="withdrawals">
+          <h2>Manual Withdrawals</h2>
+          <p>Withdraw PHPT to your saved bank accounts or e-wallets.</p>
+
+          <h3>Add Bank Account</h3>
+          <pre><code>POST /api/manual/bank-accounts
+{
+  "accountType": "gcash",
+  "accountNumber": "09171234567",
+  "accountName": "Juan Dela Cruz"
+}</code></pre>
+
+          <h3>Request Withdrawal</h3>
+          <pre><code>POST /api/manual/withdrawals
+{
+  "userBankAccountId": 1,
+  "amount": 1000,
+  "pin": "123456"
+}</code></pre>
+
+          <p>Withdrawals are processed by admin within 1-24 hours.</p>
+          <p><span class="badge badge-warning">1-24 hrs</span> <span class="badge badge-info">PIN Required</span></p>
+        </section>
+
+        <section id="pin">
+          <h2>PIN Protection</h2>
+          <p>Your 6-digit PIN is required for all financial transactions:</p>
+          <ul>
+            <li>P2P Transfers</li>
+            <li>QRPH Cash-out</li>
+            <li>Casino Buy/Sell Chips</li>
+            <li>Telegram Cashout</li>
+            <li>Manual Withdrawals</li>
+          </ul>
+
+          <div class="callout callout-warning">
+            <div class="callout-title">⚠️ PIN Lockout</div>
+            <p>After 5 failed PIN attempts, your account is locked for 30 minutes.</p>
+          </div>
+        </section>
+
+        <section id="kyc">
+          <h2>KYC Verification</h2>
+          <p>KYC verification is required for transfers of ₱5,000 or more.</p>
+
+          <table>
+            <thead>
+              <tr><th>Status</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="badge badge-warning">Unverified</span></td><td>KYC not submitted</td></tr>
+              <tr><td><span class="badge badge-info">Pending</span></td><td>Under admin review</td></tr>
+              <tr><td><span class="badge badge-success">Verified</span></td><td>Full access granted</td></tr>
+              <tr><td><span class="badge badge-error">Rejected</span></td><td>Resubmission required</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="endpoints">
+          <h2>Key API Endpoints</h2>
+          <table>
+            <thead>
+              <tr><th>Endpoint</th><th>Method</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>/api/auth/login</code></td><td>POST</td><td>Login and get bearer token</td></tr>
+              <tr><td><code>/api/auth/register</code></td><td>POST</td><td>Create new account</td></tr>
+              <tr><td><code>/api/wallet/balance</code></td><td>GET</td><td>Get PHPT balance</td></tr>
+              <tr><td><code>/api/transfer</code></td><td>POST</td><td>Send PHPT to user</td></tr>
+              <tr><td><code>/api/nexuspay/cashin</code></td><td>POST</td><td>Generate QRPH deposit QR</td></tr>
+              <tr><td><code>/api/nexuspay/cashout</code></td><td>POST</td><td>Withdraw to e-wallet</td></tr>
+              <tr><td><code>/api/casino/deposit</code></td><td>POST</td><td>Buy casino chips</td></tr>
+              <tr><td><code>/api/casino/withdraw</code></td><td>POST</td><td>Sell casino chips</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top: 24px;"><a href="/api/swagger" class="btn-primary">View Full API Documentation →</a></p>
+        </section>
+
+        <footer class="footer">
+          <p>PayVerse Documentation • <a href="mailto:support@payverse.ph">support@payverse.ph</a></p>
+          <p style="margin-top: 8px;">Version 1.0 • Last updated January 2026</p>
+        </footer>
+      </article>
+    </main>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const btn = document.querySelector('.theme-toggle');
+      if (html.getAttribute('data-theme') === 'dark') {
+        html.setAttribute('data-theme', 'light');
+        btn.textContent = '🌙 Dark';
+      } else {
+        html.setAttribute('data-theme', 'dark');
+        btn.textContent = '☀️ Light';
+      }
+    }
+
+    // Highlight active nav link on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-link');
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const top = section.offsetTop - 100;
+        if (scrollY >= top) current = section.getAttribute('id');
+      });
+      navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + current) link.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>
+`;
+
 export function setupSwagger(app: Express) {
-  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  // Main documentation page at /docs
+  app.get("/docs", (req, res) => {
+    res.setHeader("Content-Type", "text/html");
+    res.send(docsHtml);
+  });
+
+  // Swagger UI at /api/swagger
+  app.use("/api/swagger", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: "PayVerse API Documentation",
     swaggerOptions: {
@@ -1918,10 +2649,22 @@ export function setupSwagger(app: Express) {
     }
   }));
 
-  app.get("/api-docs.json", (req, res) => {
+  // Legacy route redirect (backward compatibility)
+  app.get("/api-docs", (req, res) => {
+    res.redirect("/api/swagger");
+  });
+
+  // JSON export
+  app.get("/api/swagger.json", (req, res) => {
     res.setHeader("Content-Type", "application/json");
     res.send(swaggerSpec);
   });
 
-  console.log("[Swagger] API documentation available at /api-docs");
+  // Legacy JSON route redirect
+  app.get("/api-docs.json", (req, res) => {
+    res.redirect("/api/swagger.json");
+  });
+
+  console.log("[Swagger] API documentation available at /api/swagger");
+  console.log("[Docs] User documentation available at /docs");
 }
