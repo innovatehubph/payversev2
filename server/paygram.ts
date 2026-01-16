@@ -6,11 +6,11 @@ import { encrypt, decrypt } from "./encryption";
 import { generateRequestId } from "./utils";
 import { getSystemSetting } from "./settings";
 
-const PAYGRAM_API_URL = "https://api.pay-gram.org";
-const TGIN_API_URL = "https://tgin.pay-gram.org/PayGramUsers";
-const PAYGRAM_TELEGRAM_BOT = "opgmbot";
+export const PAYGRAM_API_URL = "https://api.pay-gram.org";
+export const TGIN_API_URL = "https://tgin.pay-gram.org/PayGramUsers";
+export const PAYGRAM_TELEGRAM_BOT = "opgmbot";
 
-async function getSharedPaygramToken(): Promise<string | null> {
+export async function getSharedPaygramToken(): Promise<string | null> {
   const token = await getSystemSetting("PAYGRAM_API_TOKEN", "");
   return token || null;
 }
@@ -41,10 +41,10 @@ const connectTelegramTokenSchema = z.object({
   telegramToken: z.string().min(10, "Telegram PayGram token is required")
 });
 
-async function getDecryptedTelegramToken(userId: number): Promise<string | null> {
+export async function getDecryptedTelegramToken(userId: number): Promise<string | null> {
   const connection = await storage.getPaygramConnection(userId);
   if (!connection) return null;
-  
+
   try {
     return decrypt(connection.apiToken);
   } catch (error) {

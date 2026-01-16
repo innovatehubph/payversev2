@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import { storage } from "./storage";
 import { authMiddleware } from "./auth";
 import { balanceAdjustmentInputSchema, USER_ROLES, type UserRole } from "@shared/schema";
-import { transferFromAdminWallet, getUserPhptBalance, registerPaygramUser } from "./paygram";
+import { transferFromAdminWallet, getUserPhptBalance, registerPaygramUser, getSharedPaygramToken, getDecryptedTelegramToken, PAYGRAM_API_URL, TGIN_API_URL } from "./paygram";
 import { sanitizeUser, sanitizeUsers, generateRequestId, getClientIp, isAdmin as checkIsAdmin } from "./utils";
 import { getSystemSetting } from "./settings";
 
@@ -1059,10 +1059,339 @@ export function registerAdminRoutes(app: Express) {
   // Get Telegram transaction history
   app.get("/api/admin/telegram/transactions", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
     try {
-      const transactions = await storage.getTransactionsByType(["telegram_topup", "telegram_cashout"]);
+      const transactions = await storage.getTransactionsByType(["telegram_topup", "telegram_cashout", "escrow_topup", "escrow_cashout"]);
       res.json({ success: true, transactions });
     } catch (error: any) {
       console.error("Admin Telegram transactions error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // ==================== ESCROW MANAGEMENT ROUTES (Super Admin Only) ====================
+  // These routes allow the super admin to topup/cashout the escrow account via Telegram
+
+  // Helper function to get admin's TGIN token from system settings
+  async function getAdminTginToken(): Promise<string | null> {
+    const token = await getSystemSetting("ADMIN_TGIN_TOKEN", "");
+    return token || null;
+  }
+
+  // Helper function to format voucher code for PayVoucher
+  function formatVoucherCode(code: string): string | null {
+    if (!code) return null;
+    const cleanCode = code.replace(/\s+/g, '').trim();
+    if (cleanCode.length !== 12) {
+      console.error(`Invalid voucher code length: expected 12, got ${cleanCode.length}`);
+      return null;
+    }
+    const formatted = `${cleanCode.slice(0,3)} ${cleanCode.slice(3,6)} ${cleanCode.slice(6,8)} ${cleanCode.slice(8,10)} ${cleanCode.slice(10,12)}`;
+    return formatted.toUpperCase();
+  }
+
+  // Check if super admin's TGIN token is configured
+  app.get("/api/admin/escrow/status", authMiddleware, superAdminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const tginToken = await getAdminTginToken();
+      const paygramToken = await getAdminPaygramToken();
+      const escrowAccountId = "superadmin";
+
+      // Get escrow account balance
+      let escrowBalance = 0;
+      if (paygramToken) {
+        try {
+          const balanceResult = await getUserPhptBalance(escrowAccountId);
+          if (balanceResult.success) {
+            escrowBalance = balanceResult.balance;
+          }
+        } catch (e) {
+          console.error("Failed to get escrow balance:", e);
+        }
+      }
+
+      res.json({
+        success: true,
+        tginConfigured: !!tginToken,
+        paygramConfigured: !!paygramToken,
+        escrowAccountId,
+        escrowBalance: escrowBalance.toFixed(2),
+        message: !tginToken
+          ? "Configure your TGIN token in System Settings → PayGram API to enable Telegram operations"
+          : "Escrow account ready"
+      });
+    } catch (error: any) {
+      console.error("Escrow status error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Escrow Topup: Transfer PHPT from super admin's Telegram wallet to escrow account
+  // Flow: Super Admin Telegram → Escrow PayGram account ("superadmin")
+  app.post("/api/admin/escrow/topup", authMiddleware, superAdminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    const paygramToken = await getAdminPaygramToken();
+    const tginToken = await getAdminTginToken();
+
+    if (!paygramToken) {
+      return res.status(503).json({ success: false, message: "PayGram not configured. Set PAYGRAM_API_TOKEN in System Settings." });
+    }
+    if (!tginToken) {
+      return res.status(503).json({ success: false, message: "TGIN token not configured. Set ADMIN_TGIN_TOKEN in System Settings." });
+    }
+
+    try {
+      const { amount } = req.body;
+      const topupAmount = parseFloat(amount);
+
+      if (isNaN(topupAmount) || topupAmount < 1) {
+        return res.status(400).json({ success: false, message: "Minimum amount is 1 PHPT" });
+      }
+
+      const escrowAccountId = "superadmin";
+      console.log(`[Escrow Topup] Starting ${topupAmount} PHPT topup to escrow from Telegram`);
+
+      // Step 1: Create invoice for escrow account via PayGramPay
+      console.log(`[Escrow Topup] Step 1: Creating invoice for ${escrowAccountId}`);
+      const invoiceResponse = await fetch(`${PAYGRAM_API_URL}/${paygramToken}/IssueInvoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/plain" },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: escrowAccountId,
+          currencyCode: 11,
+          amount: topupAmount,
+          callbackData: `escrow-topup-${Date.now()}`,
+          merchantType: 0
+        })
+      });
+
+      const invoiceText = await invoiceResponse.text();
+      console.log("[Escrow Topup] Invoice response:", invoiceText);
+
+      let invoiceData;
+      try {
+        invoiceData = JSON.parse(invoiceText);
+      } catch {
+        return res.status(500).json({ success: false, message: "Failed to create invoice", rawResponse: invoiceText });
+      }
+
+      if (!invoiceData.success) {
+        return res.status(400).json({ success: false, message: invoiceData.message || "Failed to create invoice" });
+      }
+
+      const invoiceCode = invoiceData.invoiceCode;
+      const friendlyVoucherCode = invoiceData.friendlyVoucherCode;
+      console.log(`[Escrow Topup] Invoice created: ${invoiceCode}`);
+
+      // Step 2: Pay invoice using TGIN PayVoucher (from super admin's Telegram)
+      const formattedVoucher = formatVoucherCode(friendlyVoucherCode);
+      if (!formattedVoucher) {
+        return res.status(400).json({ success: false, message: "Invalid voucher code format" });
+      }
+
+      console.log(`[Escrow Topup] Step 2: Paying invoice with TGIN PayVoucher`);
+      const payUrl = `${TGIN_API_URL}/${tginToken}/PayVoucher?voucherCode=${encodeURIComponent(formattedVoucher)}&amt=${topupAmount}&cursym=11`;
+      const payResponse = await fetch(payUrl, { method: "GET", headers: { "Accept": "text/plain" } });
+      const payText = await payResponse.text();
+      console.log("[Escrow Topup] PayVoucher response:", payText);
+
+      let payData;
+      try {
+        payData = JSON.parse(payText);
+      } catch {
+        return res.status(500).json({ success: false, message: "Payment failed", rawResponse: payText });
+      }
+
+      if (!payData.success) {
+        return res.status(400).json({ success: false, message: payData.message || "Payment from Telegram failed" });
+      }
+
+      // Step 3: Redeem invoice to credit escrow account
+      console.log(`[Escrow Topup] Step 3: Redeeming invoice to credit escrow`);
+      const redeemResponse = await fetch(`${PAYGRAM_API_URL}/${paygramToken}/RedeemInvoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/plain" },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: escrowAccountId,
+          invoiceCode: invoiceCode
+        })
+      });
+
+      const redeemText = await redeemResponse.text();
+      console.log("[Escrow Topup] RedeemInvoice response:", redeemText);
+
+      let redeemData;
+      try {
+        redeemData = JSON.parse(redeemText);
+      } catch {
+        return res.status(500).json({ success: false, message: "Redeem failed", rawResponse: redeemText });
+      }
+
+      if (!redeemData.success) {
+        return res.status(400).json({ success: false, message: redeemData.message || "Redeem failed" });
+      }
+
+      // Get new escrow balance
+      const balanceResult = await getUserPhptBalance(escrowAccountId);
+      const newBalance = balanceResult.success ? balanceResult.balance : 0;
+
+      // Create transaction record
+      await storage.createTransaction({
+        senderId: req.user!.id,
+        receiverId: req.user!.id,
+        amount: topupAmount.toFixed(2),
+        type: "escrow_topup",
+        status: "completed",
+        category: "Escrow Topup",
+        note: `Escrow topup from Telegram: ${topupAmount} PHPT`,
+        walletType: "phpt",
+        externalTxId: invoiceCode
+      });
+
+      // Audit log
+      const auditMeta = getAuditMetadata(req, "escrow_topup");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "escrow_topup",
+        targetType: "escrow",
+        targetId: req.user!.id,
+        details: `Topped up escrow with ${topupAmount} PHPT from Telegram`,
+        newValue: JSON.stringify({ amount: topupAmount, invoiceCode }),
+        ...auditMeta
+      });
+
+      console.log(`[Escrow Topup] Success! ${topupAmount} PHPT credited to escrow. New balance: ${newBalance}`);
+
+      res.json({
+        success: true,
+        message: `Successfully topped up ${topupAmount} PHPT to escrow`,
+        amount: topupAmount,
+        newEscrowBalance: newBalance.toFixed(2),
+        transactionId: invoiceCode
+      });
+    } catch (error: any) {
+      console.error("[Escrow Topup] Error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Escrow Cashout: Transfer PHPT from escrow account to super admin's Telegram wallet
+  // Flow: Escrow PayGram account ("superadmin") → Super Admin Telegram
+  app.post("/api/admin/escrow/cashout", authMiddleware, superAdminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    const paygramToken = await getAdminPaygramToken();
+    const tginToken = await getAdminTginToken();
+
+    if (!paygramToken) {
+      return res.status(503).json({ success: false, message: "PayGram not configured. Set PAYGRAM_API_TOKEN in System Settings." });
+    }
+    if (!tginToken) {
+      return res.status(503).json({ success: false, message: "TGIN token not configured. Set ADMIN_TGIN_TOKEN in System Settings." });
+    }
+
+    try {
+      const { amount } = req.body;
+      const cashoutAmount = parseFloat(amount);
+
+      if (isNaN(cashoutAmount) || cashoutAmount < 1) {
+        return res.status(400).json({ success: false, message: "Minimum amount is 1 PHPT" });
+      }
+
+      const escrowAccountId = "superadmin";
+
+      // Check escrow balance first
+      const balanceResult = await getUserPhptBalance(escrowAccountId);
+      if (!balanceResult.success || balanceResult.balance < cashoutAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient escrow balance. Available: ${balanceResult.balance?.toFixed(2) || 0} PHPT`
+        });
+      }
+
+      console.log(`[Escrow Cashout] Starting ${cashoutAmount} PHPT cashout from escrow to Telegram`);
+
+      // Step 1: Create TGIN invoice for super admin's Telegram to receive
+      console.log(`[Escrow Cashout] Step 1: Creating TGIN invoice for Telegram to receive`);
+      const tginInvoiceUrl = `${TGIN_API_URL}/${tginToken}/IssueInvoice?amt=${cashoutAmount}&cursym=PHPT`;
+      const tginResponse = await fetch(tginInvoiceUrl, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+
+      const tginData = await tginResponse.json();
+      console.log("[Escrow Cashout] TGIN Invoice response:", JSON.stringify(tginData));
+
+      if (!tginData.success) {
+        return res.status(400).json({ success: false, message: tginData.message || "Failed to create Telegram invoice" });
+      }
+
+      const tginInvoiceCode = tginData.invoiceCode;
+
+      // Step 2: Pay the TGIN invoice from escrow via PayGramPay
+      console.log(`[Escrow Cashout] Step 2: Paying TGIN invoice from escrow`);
+      const payResponse = await fetch(`${PAYGRAM_API_URL}/${paygramToken}/PayInvoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/plain" },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: escrowAccountId,
+          invoiceCode: tginInvoiceCode,
+          currencyCode: 11,
+          amount: cashoutAmount
+        })
+      });
+
+      const payText = await payResponse.text();
+      console.log("[Escrow Cashout] PayInvoice response:", payText);
+
+      let payData;
+      try {
+        payData = JSON.parse(payText);
+      } catch {
+        return res.status(500).json({ success: false, message: "Payment failed", rawResponse: payText });
+      }
+
+      if (!payData.success) {
+        return res.status(400).json({ success: false, message: payData.message || "Payment from escrow failed" });
+      }
+
+      // Get new escrow balance
+      const newBalanceResult = await getUserPhptBalance(escrowAccountId);
+      const newBalance = newBalanceResult.success ? newBalanceResult.balance : 0;
+
+      // Create transaction record
+      await storage.createTransaction({
+        senderId: req.user!.id,
+        amount: cashoutAmount.toFixed(2),
+        type: "escrow_cashout",
+        status: "completed",
+        category: "Escrow Cashout",
+        note: `Escrow cashout to Telegram: ${cashoutAmount} PHPT`,
+        walletType: "phpt",
+        externalTxId: tginInvoiceCode
+      });
+
+      // Audit log
+      const auditMeta = getAuditMetadata(req, "escrow_cashout");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "escrow_cashout",
+        targetType: "escrow",
+        targetId: req.user!.id,
+        details: `Cashed out ${cashoutAmount} PHPT from escrow to Telegram`,
+        newValue: JSON.stringify({ amount: cashoutAmount, invoiceCode: tginInvoiceCode }),
+        ...auditMeta
+      });
+
+      console.log(`[Escrow Cashout] Success! ${cashoutAmount} PHPT sent to Telegram. New escrow balance: ${newBalance}`);
+
+      res.json({
+        success: true,
+        message: `Successfully sent ${cashoutAmount} PHPT to your Telegram`,
+        amount: cashoutAmount,
+        newEscrowBalance: newBalance.toFixed(2),
+        transactionId: tginInvoiceCode
+      });
+    } catch (error: any) {
+      console.error("[Escrow Cashout] Error:", error);
       res.status(500).json({ success: false, message: error.message });
     }
   });

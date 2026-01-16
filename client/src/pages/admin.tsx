@@ -194,6 +194,16 @@ export default function Admin() {
   const [telegramTransactions, setTelegramTransactions] = useState<any[]>([]);
   const [generatedTelegramLink, setGeneratedTelegramLink] = useState<string | null>(null);
 
+  // Escrow Management state (super admin only)
+  const [escrowStatus, setEscrowStatus] = useState<{
+    tginConfigured: boolean;
+    paygramConfigured: boolean;
+    escrowBalance: string;
+    escrowAccountId: string;
+  } | null>(null);
+  const [escrowAmount, setEscrowAmount] = useState("");
+  const [processingEscrow, setProcessingEscrow] = useState(false);
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -256,6 +266,18 @@ export default function Admin() {
       if (telegramTxRes.ok) {
         const telegramData = await telegramTxRes.json();
         setTelegramTransactions(telegramData.transactions || []);
+      }
+
+      // Fetch escrow status for super admin
+      if (user?.role === "super_admin") {
+        try {
+          const escrowRes = await fetch("/api/admin/escrow/status", { headers: getAuthHeaders() });
+          if (escrowRes.ok) {
+            setEscrowStatus(await escrowRes.json());
+          }
+        } catch (e) {
+          console.error("Failed to fetch escrow status:", e);
+        }
       }
 
       if (cryptoRes.ok) {
@@ -2429,6 +2451,154 @@ export default function Admin() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Escrow Management Section (Super Admin Only) */}
+          {user?.role === "super_admin" && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  Escrow Account Management
+                </CardTitle>
+                <CardDescription>
+                  Manage the escrow PHPT wallet - topup from your Telegram or withdraw to your Telegram
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Escrow Status */}
+                <div className="p-4 rounded-lg bg-muted/50 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">Escrow Account</span>
+                    <span className="font-mono text-sm">{escrowStatus?.escrowAccountId || "superadmin"}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">Escrow Balance</span>
+                    <span className="text-xl font-bold text-green-600">
+                      ₱{parseFloat(escrowStatus?.escrowBalance || "0").toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">TGIN Token</span>
+                    {escrowStatus?.tginConfigured ? (
+                      <Badge className="bg-green-100 text-green-700">Configured</Badge>
+                    ) : (
+                      <Badge variant="destructive">Not Configured</Badge>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">PayGram API</span>
+                    {escrowStatus?.paygramConfigured ? (
+                      <Badge className="bg-green-100 text-green-700">Configured</Badge>
+                    ) : (
+                      <Badge variant="destructive">Not Configured</Badge>
+                    )}
+                  </div>
+                </div>
+
+                {!escrowStatus?.tginConfigured && (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-700">
+                    <AlertTriangle className="h-4 w-4 inline mr-2" />
+                    Configure your TGIN token in <strong>System Settings → PayGram API</strong> to enable Telegram escrow operations
+                  </div>
+                )}
+
+                {/* Amount Input */}
+                <div className="space-y-2">
+                  <Label>Amount (PHPT)</Label>
+                  <Input
+                    type="number"
+                    placeholder="Enter amount..."
+                    value={escrowAmount}
+                    onChange={(e) => setEscrowAmount(e.target.value)}
+                    min="1"
+                    disabled={!escrowStatus?.tginConfigured}
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="grid grid-cols-2 gap-4">
+                  <Button
+                    onClick={async () => {
+                      if (!escrowAmount || parseFloat(escrowAmount) < 1) {
+                        toast({ title: "Error", description: "Enter a valid amount", variant: "destructive" });
+                        return;
+                      }
+                      setProcessingEscrow(true);
+                      try {
+                        const response = await fetch("/api/admin/escrow/topup", {
+                          method: "POST",
+                          headers: getAuthHeaders(),
+                          body: JSON.stringify({ amount: escrowAmount })
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                          toast({ title: "Success!", description: data.message });
+                          setEscrowAmount("");
+                          fetchAdminData(true);
+                        } else {
+                          toast({ title: "Error", description: data.message, variant: "destructive" });
+                        }
+                      } catch (error: any) {
+                        toast({ title: "Error", description: error.message, variant: "destructive" });
+                      } finally {
+                        setProcessingEscrow(false);
+                      }
+                    }}
+                    disabled={processingEscrow || !escrowStatus?.tginConfigured || !escrowAmount}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {processingEscrow ? (
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <TrendingUp className="h-4 w-4 mr-2" />
+                    )}
+                    Topup Escrow
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      if (!escrowAmount || parseFloat(escrowAmount) < 1) {
+                        toast({ title: "Error", description: "Enter a valid amount", variant: "destructive" });
+                        return;
+                      }
+                      setProcessingEscrow(true);
+                      try {
+                        const response = await fetch("/api/admin/escrow/cashout", {
+                          method: "POST",
+                          headers: getAuthHeaders(),
+                          body: JSON.stringify({ amount: escrowAmount })
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                          toast({ title: "Success!", description: data.message });
+                          setEscrowAmount("");
+                          fetchAdminData(true);
+                        } else {
+                          toast({ title: "Error", description: data.message, variant: "destructive" });
+                        }
+                      } catch (error: any) {
+                        toast({ title: "Error", description: error.message, variant: "destructive" });
+                      } finally {
+                        setProcessingEscrow(false);
+                      }
+                    }}
+                    disabled={processingEscrow || !escrowStatus?.tginConfigured || !escrowAmount}
+                  >
+                    {processingEscrow ? (
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Wallet className="h-4 w-4 mr-2" />
+                    )}
+                    Cashout from Escrow
+                  </Button>
+                </div>
+
+                <p className="text-xs text-muted-foreground text-center">
+                  Topup transfers PHPT from your Telegram to escrow. Cashout sends PHPT from escrow to your Telegram.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 

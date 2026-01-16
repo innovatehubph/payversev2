@@ -79,8 +79,15 @@ const DEFAULT_SETTINGS = [
   {
     key: "PAYGRAM_API_TOKEN",
     category: "paygram",
-    description: "PayGram API Token for PHPT transactions",
+    description: "PayGram API Token for PHPT transactions (shared account)",
     value: process.env.PAYGRAM_API_TOKEN || "",
+    isEncrypted: true,
+  },
+  {
+    key: "ADMIN_TGIN_TOKEN",
+    category: "paygram",
+    description: "Super Admin TGIN Token for Telegram wallet operations (escrow topup/cashout)",
+    value: process.env.ADMIN_TGIN_TOKEN || "",
     isEncrypted: true,
   },
   // Note: Escrow account is always the super admin's username ("superadmin")
