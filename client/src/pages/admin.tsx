@@ -184,6 +184,16 @@ export default function Admin() {
   const [processingWithdrawal, setProcessingWithdrawal] = useState<number | null>(null);
   const [withdrawalRejectReason, setWithdrawalRejectReason] = useState("");
 
+  // Telegram Topup/Cashout state
+  const [telegramUserId, setTelegramUserId] = useState("");
+  const [telegramAmount, setTelegramAmount] = useState("");
+  const [telegramNote, setTelegramNote] = useState("");
+  const [telegramUsername, setTelegramUsername] = useState("");
+  const [telegramAction, setTelegramAction] = useState<"topup" | "cashout">("topup");
+  const [processingTelegram, setProcessingTelegram] = useState(false);
+  const [telegramTransactions, setTelegramTransactions] = useState<any[]>([]);
+  const [generatedTelegramLink, setGeneratedTelegramLink] = useState<string | null>(null);
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -212,7 +222,7 @@ export default function Admin() {
   const fetchAdminData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [statsRes, usersRes, txRes, cryptoRes, kycRes, logsRes, adjRes, methodsRes, depositsRes, creditPendingRes, qrphRes, withdrawalsRes] = await Promise.all([
+      const [statsRes, usersRes, txRes, cryptoRes, kycRes, logsRes, adjRes, methodsRes, depositsRes, creditPendingRes, qrphRes, withdrawalsRes, telegramTxRes] = await Promise.all([
         fetch("/api/admin/stats", { headers: getAuthHeaders() }),
         fetch("/api/admin/users", { headers: getAuthHeaders() }),
         fetch("/api/admin/transactions", { headers: getAuthHeaders() }),
@@ -224,7 +234,8 @@ export default function Admin() {
         fetch("/api/manual/admin/deposits/pending", { headers: getAuthHeaders() }),
         fetch("/api/manual/admin/deposits/credit-pending", { headers: getAuthHeaders() }),
         fetch("/api/admin/qrph/pending", { headers: getAuthHeaders() }),
-        fetch("/api/manual/admin/withdrawals", { headers: getAuthHeaders() })
+        fetch("/api/manual/admin/withdrawals", { headers: getAuthHeaders() }),
+        fetch("/api/admin/telegram/transactions", { headers: getAuthHeaders() })
       ]);
 
       if (statsRes.ok) setStats(await statsRes.json());
@@ -241,6 +252,10 @@ export default function Admin() {
         const withdrawals = await withdrawalsRes.json();
         setAllWithdrawals(withdrawals);
         setPendingWithdrawals(withdrawals.filter((w: any) => w.status === "pending" || w.status === "processing"));
+      }
+      if (telegramTxRes.ok) {
+        const telegramData = await telegramTxRes.json();
+        setTelegramTransactions(telegramData.transactions || []);
       }
 
       if (cryptoRes.ok) {
@@ -960,7 +975,7 @@ export default function Admin() {
       )}
 
       <Tabs defaultValue="users" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-8">
+        <TabsList className="grid w-full grid-cols-10">
           <TabsTrigger value="users" data-testid="tab-users">
             <Users className="h-4 w-4 mr-1" />
             <span className="hidden sm:inline">Users</span>
@@ -989,6 +1004,10 @@ export default function Admin() {
                 {pendingQrph.length}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="telegram" data-testid="tab-telegram">
+            <Send className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Telegram</span>
           </TabsTrigger>
           <TabsTrigger value="crypto" data-testid="tab-crypto">
             <Bitcoin className="h-4 w-4 mr-1" />
@@ -2075,6 +2094,336 @@ export default function Admin() {
                           </div>
                         </div>
                       ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Telegram Topup/Cashout Tab */}
+        <TabsContent value="telegram">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Telegram Operations Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Send className="h-5 w-5" />
+                  Telegram {telegramAction === "topup" ? "Topup" : "Cashout"}
+                </CardTitle>
+                <CardDescription>
+                  {telegramAction === "topup"
+                    ? "Send PHPT to user via Telegram PayGram"
+                    : "Process user cashout to Telegram wallet"
+                  }
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Action Toggle */}
+                <div className="flex gap-2">
+                  <Button
+                    variant={telegramAction === "topup" ? "default" : "outline"}
+                    onClick={() => {
+                      setTelegramAction("topup");
+                      setGeneratedTelegramLink(null);
+                    }}
+                    className="flex-1"
+                  >
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    Topup
+                  </Button>
+                  <Button
+                    variant={telegramAction === "cashout" ? "default" : "outline"}
+                    onClick={() => {
+                      setTelegramAction("cashout");
+                      setGeneratedTelegramLink(null);
+                    }}
+                    className="flex-1"
+                  >
+                    <Wallet className="h-4 w-4 mr-2" />
+                    Cashout
+                  </Button>
+                </div>
+
+                {/* User Selection */}
+                <div className="space-y-2">
+                  <Label>Select User</Label>
+                  <Select value={telegramUserId} onValueChange={setTelegramUserId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a user..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users.map((u) => (
+                        <SelectItem key={u.id} value={u.id.toString()}>
+                          {u.fullName} (@{u.username}) - ₱{parseFloat(u.phptBalance || "0").toLocaleString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Amount */}
+                <div className="space-y-2">
+                  <Label>Amount (PHPT)</Label>
+                  <Input
+                    type="number"
+                    placeholder="Enter amount..."
+                    value={telegramAmount}
+                    onChange={(e) => setTelegramAmount(e.target.value)}
+                    min="1"
+                  />
+                </div>
+
+                {/* Telegram Username (for cashout) */}
+                {telegramAction === "cashout" && (
+                  <div className="space-y-2">
+                    <Label>Telegram Username (optional)</Label>
+                    <Input
+                      placeholder="@username or leave blank for user's PayGram"
+                      value={telegramUsername}
+                      onChange={(e) => setTelegramUsername(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      If blank, will use user's registered PayGram account
+                    </p>
+                  </div>
+                )}
+
+                {/* Note */}
+                <div className="space-y-2">
+                  <Label>Note (optional)</Label>
+                  <Textarea
+                    placeholder="Add a note..."
+                    value={telegramNote}
+                    onChange={(e) => setTelegramNote(e.target.value)}
+                    rows={2}
+                  />
+                </div>
+
+                {/* Generated Telegram Link */}
+                {generatedTelegramLink && (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-2">
+                    <p className="text-sm font-medium text-green-800">Telegram Link Generated!</p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={generatedTelegramLink}
+                        readOnly
+                        className="text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedTelegramLink);
+                          toast({ title: "Copied!", description: "Link copied to clipboard" });
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Share this link with the user to claim their PHPT
+                    </p>
+                  </div>
+                )}
+
+                {/* Submit Button */}
+                <Button
+                  className="w-full"
+                  onClick={async () => {
+                    if (!telegramUserId || !telegramAmount) {
+                      toast({ title: "Error", description: "Please select a user and enter amount", variant: "destructive" });
+                      return;
+                    }
+
+                    setProcessingTelegram(true);
+                    try {
+                      const endpoint = telegramAction === "topup"
+                        ? "/api/admin/telegram/direct-send"
+                        : "/api/admin/telegram/process-cashout";
+
+                      const body: any = {
+                        userId: parseInt(telegramUserId),
+                        amount: telegramAmount,
+                        note: telegramNote
+                      };
+
+                      if (telegramAction === "cashout" && telegramUsername) {
+                        body.telegramUsername = telegramUsername;
+                      }
+
+                      const response = await fetch(endpoint, {
+                        method: "POST",
+                        headers: getAuthHeaders(),
+                        body: JSON.stringify(body)
+                      });
+
+                      const data = await response.json();
+
+                      if (data.success) {
+                        toast({
+                          title: "Success!",
+                          description: data.message
+                        });
+
+                        if (data.telegramLink) {
+                          setGeneratedTelegramLink(data.telegramLink);
+                        }
+
+                        // Reset form
+                        setTelegramUserId("");
+                        setTelegramAmount("");
+                        setTelegramNote("");
+                        setTelegramUsername("");
+
+                        // Refresh data
+                        fetchAdminData(true);
+                      } else {
+                        toast({
+                          title: "Error",
+                          description: data.message || "Operation failed",
+                          variant: "destructive"
+                        });
+                      }
+                    } catch (error: any) {
+                      toast({
+                        title: "Error",
+                        description: error.message || "Operation failed",
+                        variant: "destructive"
+                      });
+                    } finally {
+                      setProcessingTelegram(false);
+                    }
+                  }}
+                  disabled={processingTelegram || !telegramUserId || !telegramAmount}
+                >
+                  {processingTelegram ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : telegramAction === "topup" ? (
+                    <Send className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Wallet className="h-4 w-4 mr-2" />
+                  )}
+                  {processingTelegram
+                    ? "Processing..."
+                    : telegramAction === "topup"
+                      ? "Send PHPT to User"
+                      : "Process Cashout"
+                  }
+                </Button>
+
+                {/* Create Link Only Button (for topup) */}
+                {telegramAction === "topup" && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={async () => {
+                      if (!telegramUserId || !telegramAmount) {
+                        toast({ title: "Error", description: "Please select a user and enter amount", variant: "destructive" });
+                        return;
+                      }
+
+                      setProcessingTelegram(true);
+                      try {
+                        const response = await fetch("/api/admin/telegram/create-topup", {
+                          method: "POST",
+                          headers: getAuthHeaders(),
+                          body: JSON.stringify({
+                            userId: parseInt(telegramUserId),
+                            amount: telegramAmount,
+                            note: telegramNote
+                          })
+                        });
+
+                        const data = await response.json();
+
+                        if (data.success) {
+                          setGeneratedTelegramLink(data.telegramLink);
+                          toast({
+                            title: "Link Generated!",
+                            description: `Share this link with ${data.user?.fullName || "the user"} to claim ${telegramAmount} PHPT`
+                          });
+                          fetchAdminData(true);
+                        } else {
+                          toast({
+                            title: "Error",
+                            description: data.message || "Failed to create link",
+                            variant: "destructive"
+                          });
+                        }
+                      } catch (error: any) {
+                        toast({
+                          title: "Error",
+                          description: error.message || "Failed to create link",
+                          variant: "destructive"
+                        });
+                      } finally {
+                        setProcessingTelegram(false);
+                      }
+                    }}
+                    disabled={processingTelegram || !telegramUserId || !telegramAmount}
+                  >
+                    <Link2 className="h-4 w-4 mr-2" />
+                    Generate Telegram Link Only
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Telegram Transaction History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <History className="h-5 w-5" />
+                  Telegram Transaction History
+                </CardTitle>
+                <CardDescription>
+                  Recent Telegram topup and cashout transactions
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                  {telegramTransactions.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">No Telegram transactions yet</p>
+                  ) : (
+                    telegramTransactions.map((tx: any) => (
+                      <div
+                        key={tx.id}
+                        className={`p-3 rounded-lg border text-sm ${
+                          tx.type === "telegram_topup"
+                            ? "bg-green-50/50 border-green-200"
+                            : "bg-blue-50/50 border-blue-200"
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              {tx.type === "telegram_topup" ? (
+                                <TrendingUp className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Wallet className="h-4 w-4 text-blue-600" />
+                              )}
+                              <span className="font-medium">
+                                {tx.type === "telegram_topup" ? "Topup" : "Cashout"}
+                              </span>
+                              <Badge variant={tx.status === "completed" ? "default" : "secondary"}>
+                                {tx.status}
+                              </Badge>
+                            </div>
+                            <p className="font-bold">
+                              {tx.type === "telegram_topup" ? "+" : "-"}
+                              ₱{parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </p>
+                            {tx.note && (
+                              <p className="text-xs text-muted-foreground">{tx.note}</p>
+                            )}
+                          </div>
+                          <div className="text-right text-xs text-muted-foreground">
+                            <p>{new Date(tx.createdAt).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
               </CardContent>

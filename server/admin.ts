@@ -720,5 +720,352 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ==================== TELEGRAM TOPUP/CASHOUT ROUTES ====================
+
+  // Create a Telegram invoice for user to claim (Topup via Telegram link)
+  app.post("/api/admin/telegram/create-topup", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    const token = await getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ success: false, message: "PayGram not configured" });
+    }
+
+    try {
+      const { userId, amount, note } = req.body;
+      const topupAmount = parseFloat(amount);
+
+      if (isNaN(topupAmount) || topupAmount < 1) {
+        return res.status(400).json({ success: false, message: "Minimum amount is 1 PHPT" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const userCliId = user.username || user.email;
+      if (!userCliId) {
+        return res.status(400).json({ success: false, message: "User has no wallet identifier" });
+      }
+
+      // Create invoice for the user to receive PHPT
+      const response = await fetch(`${PAYGRAM_API_URL}/${token}/IssueInvoice`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: userCliId,
+          currencyCode: 11,
+          amount: topupAmount,
+          merchantType: 0,
+          callbackData: `admin-topup-${userId}-${Date.now()}`
+        })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        return res.status(400).json({
+          success: false,
+          message: data.message || "Failed to create invoice"
+        });
+      }
+
+      const invoiceCode = data.invoiceCode;
+      const friendlyVoucherCode = data.friendlyVoucherCode;
+
+      // Generate Telegram redeem link
+      const payload = `a=v&c=${invoiceCode}`;
+      const encodedPayload = Buffer.from(payload).toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+      const telegramLink = `https://telegram.me/opgmbot?start=${encodedPayload}`;
+
+      // Create transaction record for tracking
+      await storage.createTransaction({
+        senderId: req.user!.id,
+        receiverId: userId,
+        amount: topupAmount.toFixed(2),
+        type: "telegram_topup",
+        status: "pending",
+        category: "Admin Telegram Topup",
+        note: note || `Admin Telegram topup - Invoice: ${invoiceCode}`,
+        walletType: "phpt",
+        externalTxId: invoiceCode
+      });
+
+      // Audit log
+      const auditMeta = getAuditMetadata(req, "telegram_topup");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "telegram_topup",
+        targetType: "user",
+        targetId: userId,
+        details: `Created Telegram topup of ${topupAmount} PHPT for ${user.username}`,
+        newValue: JSON.stringify({ amount: topupAmount, invoiceCode }),
+        ...auditMeta
+      });
+
+      console.log(`[Admin Telegram] Created topup invoice ${invoiceCode} for user ${userId} (${userCliId}): ${topupAmount} PHPT`);
+
+      res.json({
+        success: true,
+        message: `Created ${topupAmount} PHPT topup for ${user.fullName || user.username}`,
+        invoiceCode,
+        friendlyVoucherCode,
+        telegramLink,
+        amount: topupAmount,
+        user: {
+          id: user.id,
+          username: user.username,
+          fullName: user.fullName
+        }
+      });
+    } catch (error: any) {
+      console.error("Admin Telegram topup error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Direct send PHPT to user's PayGram account (instant, no link needed)
+  app.post("/api/admin/telegram/direct-send", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    const token = await getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ success: false, message: "PayGram not configured" });
+    }
+
+    try {
+      const { userId, amount, note } = req.body;
+      const sendAmount = parseFloat(amount);
+
+      if (isNaN(sendAmount) || sendAmount < 1) {
+        return res.status(400).json({ success: false, message: "Minimum amount is 1 PHPT" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const userCliId = user.username || user.email;
+      if (!userCliId) {
+        return res.status(400).json({ success: false, message: "User has no wallet identifier" });
+      }
+
+      // Transfer from admin escrow to user
+      const result = await transferFromAdminWallet(userCliId, sendAmount);
+
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          message: result.message || "Transfer failed"
+        });
+      }
+
+      // Create transaction record
+      await storage.createTransaction({
+        senderId: req.user!.id,
+        receiverId: userId,
+        amount: sendAmount.toFixed(2),
+        type: "telegram_topup",
+        status: "completed",
+        category: "Admin Direct Send",
+        note: note || `Admin direct send via Telegram`,
+        walletType: "phpt",
+        externalTxId: result.transactionId
+      });
+
+      // Sync user's balance from PayGram
+      const balanceResult = await getUserPhptBalance(userCliId);
+      if (balanceResult.success) {
+        await storage.syncPhptBalance(userId, balanceResult.balance);
+      }
+
+      // Audit log
+      const auditMeta = getAuditMetadata(req, "telegram_direct_send");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "telegram_direct_send",
+        targetType: "user",
+        targetId: userId,
+        details: `Direct sent ${sendAmount} PHPT to ${user.username}`,
+        newValue: JSON.stringify({ amount: sendAmount, txId: result.transactionId }),
+        ...auditMeta
+      });
+
+      console.log(`[Admin Telegram] Direct sent ${sendAmount} PHPT to user ${userId} (${userCliId})`);
+
+      res.json({
+        success: true,
+        message: `Sent ${sendAmount} PHPT to ${user.fullName || user.username}`,
+        transactionId: result.transactionId,
+        amount: sendAmount,
+        newBalance: balanceResult.success ? balanceResult.balance.toFixed(2) : undefined
+      });
+    } catch (error: any) {
+      console.error("Admin Telegram direct send error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Process cashout to user's Telegram wallet
+  app.post("/api/admin/telegram/process-cashout", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    const token = await getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ success: false, message: "PayGram not configured" });
+    }
+
+    try {
+      const { userId, amount, telegramUsername, note } = req.body;
+      const cashoutAmount = parseFloat(amount);
+
+      if (isNaN(cashoutAmount) || cashoutAmount < 1) {
+        return res.status(400).json({ success: false, message: "Minimum amount is 1 PHPT" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      // Determine recipient - either user's PayGram ID or provided Telegram username
+      const recipientId = telegramUsername || user.username || user.email;
+      if (!recipientId) {
+        return res.status(400).json({ success: false, message: "No recipient identifier" });
+      }
+
+      // Check user has sufficient balance
+      const userCliId = user.username || user.email;
+      const balanceResult = await getUserPhptBalance(userCliId!);
+
+      if (!balanceResult.success || balanceResult.balance < cashoutAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient balance. User has ${balanceResult.balance?.toFixed(2) || 0} PHPT`
+        });
+      }
+
+      // Transfer from user to admin escrow first (debit user)
+      const escrowAccountId = "superadmin";
+      const debitResponse = await fetch(`${PAYGRAM_API_URL}/${token}/TransferCredit`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: userCliId,
+          toUserCliId: escrowAccountId,
+          currencyCode: 11,
+          amount: cashoutAmount
+        })
+      });
+
+      const debitData = await debitResponse.json();
+      if (!debitData.success) {
+        return res.status(400).json({
+          success: false,
+          message: debitData.message || "Failed to debit user balance"
+        });
+      }
+
+      // If telegramUsername is different from user's account, transfer to that account
+      if (telegramUsername && telegramUsername !== userCliId) {
+        const sendResponse = await fetch(`${PAYGRAM_API_URL}/${token}/TransferCredit`, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            requestId: generateRequestId(),
+            userCliId: escrowAccountId,
+            toUserCliId: telegramUsername,
+            currencyCode: 11,
+            amount: cashoutAmount
+          })
+        });
+
+        const sendData = await sendResponse.json();
+        if (!sendData.success) {
+          // Refund user if transfer to Telegram fails
+          await fetch(`${PAYGRAM_API_URL}/${token}/TransferCredit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requestId: generateRequestId(),
+              userCliId: escrowAccountId,
+              toUserCliId: userCliId,
+              currencyCode: 11,
+              amount: cashoutAmount
+            })
+          });
+
+          return res.status(400).json({
+            success: false,
+            message: `Failed to send to Telegram: ${sendData.message}. User refunded.`
+          });
+        }
+      }
+
+      // Create transaction record
+      await storage.createTransaction({
+        senderId: userId,
+        amount: cashoutAmount.toFixed(2),
+        type: "telegram_cashout",
+        status: "completed",
+        category: "Admin Telegram Cashout",
+        note: note || `Cashout to Telegram: ${telegramUsername || userCliId}`,
+        walletType: "phpt"
+      });
+
+      // Sync user's balance
+      const newBalanceResult = await getUserPhptBalance(userCliId!);
+      if (newBalanceResult.success) {
+        await storage.syncPhptBalance(userId, newBalanceResult.balance);
+      }
+
+      // Audit log
+      const auditMeta = getAuditMetadata(req, "telegram_cashout");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "telegram_cashout",
+        targetType: "user",
+        targetId: userId,
+        details: `Processed ${cashoutAmount} PHPT cashout to Telegram for ${user.username}`,
+        newValue: JSON.stringify({ amount: cashoutAmount, recipient: telegramUsername || userCliId }),
+        ...auditMeta
+      });
+
+      console.log(`[Admin Telegram] Processed cashout ${cashoutAmount} PHPT for user ${userId} to ${telegramUsername || userCliId}`);
+
+      res.json({
+        success: true,
+        message: `Sent ${cashoutAmount} PHPT to ${telegramUsername || user.username}'s Telegram`,
+        amount: cashoutAmount,
+        recipient: telegramUsername || userCliId,
+        newBalance: newBalanceResult.success ? newBalanceResult.balance.toFixed(2) : undefined
+      });
+    } catch (error: any) {
+      console.error("Admin Telegram cashout error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Get Telegram transaction history
+  app.get("/api/admin/telegram/transactions", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const transactions = await storage.getTransactionsByType(["telegram_topup", "telegram_cashout"]);
+      res.json({ success: true, transactions });
+    } catch (error: any) {
+      console.error("Admin Telegram transactions error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   console.log("Admin routes registered");
 }

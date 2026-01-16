@@ -38,6 +38,7 @@ export interface IStorage {
   
   getAllUsers(): Promise<User[]>;
   getAllTransactions(): Promise<Transaction[]>;
+  getTransactionsByType(types: string[]): Promise<Transaction[]>;
   getAdminStats(): Promise<{ 
     totalUsers: number; 
     totalTransactions: number; 
@@ -448,6 +449,13 @@ export class DatabaseStorage implements IStorage {
 
   async getAllTransactions(): Promise<Transaction[]> {
     return await db.select().from(transactions).orderBy(desc(transactions.createdAt)).limit(100);
+  }
+
+  async getTransactionsByType(types: string[]): Promise<Transaction[]> {
+    return await db.select().from(transactions)
+      .where(inArray(transactions.type, types))
+      .orderBy(desc(transactions.createdAt))
+      .limit(100);
   }
 
   async getAdminStats(): Promise<{ 
