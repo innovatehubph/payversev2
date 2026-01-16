@@ -203,6 +203,12 @@ const DEFAULT_SETTINGS = [
     description: "SMTP from email address",
     value: process.env.SMTP_FROM || "noreply@payverse.ph",
   },
+  {
+    key: "EMAIL_LOGO_URL",
+    category: "email",
+    description: "Logo URL for email templates (must be publicly accessible)",
+    value: process.env.EMAIL_LOGO_URL || "https://payverse.ph/logo.png",
+  },
 ];
 
 // Default escrow agents (casino agents managed by super admin)

@@ -31,6 +31,16 @@ export default function Security() {
   const [changingPin, setChangingPin] = useState(false);
   const [sendingOtp, setSendingOtp] = useState(false);
 
+  // Forgot PIN state
+  const [showForgotPin, setShowForgotPin] = useState(false);
+  const [forgotPinOtp, setForgotPinOtp] = useState("");
+  const [forgotPinNewPin, setForgotPinNewPin] = useState("");
+  const [forgotPinConfirmPin, setForgotPinConfirmPin] = useState("");
+  const [forgotPinOtpSent, setForgotPinOtpSent] = useState(false);
+  const [forgotPinSendingOtp, setForgotPinSendingOtp] = useState(false);
+  const [forgotPinResetting, setForgotPinResetting] = useState(false);
+  const [maskedEmail, setMaskedEmail] = useState("");
+
   const getAuthHeaders = () => {
     const token = getAuthToken();
     return {
@@ -163,6 +173,85 @@ export default function Security() {
     }
   };
 
+  // Forgot PIN handlers
+  const handleForgotPinRequestOtp = async () => {
+    setForgotPinSendingOtp(true);
+    try {
+      const response = await fetch("/api/security/pin/reset/request", {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast({ title: "OTP Sent", description: "Check your email for the verification code" });
+        setForgotPinOtpSent(true);
+        setMaskedEmail(data.email || "your email");
+      } else {
+        toast({ title: "Error", description: data.message || "Failed to send OTP", variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to send OTP", variant: "destructive" });
+    } finally {
+      setForgotPinSendingOtp(false);
+    }
+  };
+
+  const handleForgotPinReset = async () => {
+    if (forgotPinNewPin.length !== 6) {
+      toast({ title: "Error", description: "New PIN must be 6 digits", variant: "destructive" });
+      return;
+    }
+    if (forgotPinNewPin !== forgotPinConfirmPin) {
+      toast({ title: "Error", description: "PINs do not match", variant: "destructive" });
+      return;
+    }
+    if (forgotPinOtp.length !== 6) {
+      toast({ title: "Error", description: "Please enter the 6-digit verification code", variant: "destructive" });
+      return;
+    }
+
+    setForgotPinResetting(true);
+    try {
+      const response = await fetch("/api/security/pin/reset/confirm", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          otp: forgotPinOtp,
+          newPin: forgotPinNewPin
+        })
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast({ title: "Success", description: "PIN reset successfully" });
+        // Reset all forgot PIN state
+        setShowForgotPin(false);
+        setForgotPinOtp("");
+        setForgotPinNewPin("");
+        setForgotPinConfirmPin("");
+        setForgotPinOtpSent(false);
+        setMaskedEmail("");
+        await fetchSecurityStatus();
+      } else {
+        toast({ title: "Error", description: data.message || "Failed to reset PIN", variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to reset PIN", variant: "destructive" });
+    } finally {
+      setForgotPinResetting(false);
+    }
+  };
+
+  const handleCancelForgotPin = () => {
+    setShowForgotPin(false);
+    setForgotPinOtp("");
+    setForgotPinNewPin("");
+    setForgotPinConfirmPin("");
+    setForgotPinOtpSent(false);
+    setMaskedEmail("");
+  };
+
   return (
     <AppLayout>
       <header className="mb-6">
@@ -224,26 +313,26 @@ export default function Security() {
                         <Label>Enter 6-digit PIN</Label>
                         <InputOTP maxLength={6} value={setupPin} onChange={setSetupPin} data-testid="input-setup-pin">
                           <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
-                            <InputOTPSlot index={4} />
-                            <InputOTPSlot index={5} />
+                            <InputOTPSlot index={0} mask />
+                            <InputOTPSlot index={1} mask />
+                            <InputOTPSlot index={2} mask />
+                            <InputOTPSlot index={3} mask />
+                            <InputOTPSlot index={4} mask />
+                            <InputOTPSlot index={5} mask />
                           </InputOTPGroup>
                         </InputOTP>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label>Confirm PIN</Label>
                         <InputOTP maxLength={6} value={confirmPin} onChange={setConfirmPin} data-testid="input-confirm-pin">
                           <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
-                            <InputOTPSlot index={4} />
-                            <InputOTPSlot index={5} />
+                            <InputOTPSlot index={0} mask />
+                            <InputOTPSlot index={1} mask />
+                            <InputOTPSlot index={2} mask />
+                            <InputOTPSlot index={3} mask />
+                            <InputOTPSlot index={4} mask />
+                            <InputOTPSlot index={5} mask />
                           </InputOTPGroup>
                         </InputOTP>
                       </div>
@@ -266,40 +355,40 @@ export default function Security() {
                         <Label>Current PIN</Label>
                         <InputOTP maxLength={6} value={currentPin} onChange={setCurrentPin} data-testid="input-current-pin">
                           <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
-                            <InputOTPSlot index={4} />
-                            <InputOTPSlot index={5} />
+                            <InputOTPSlot index={0} mask />
+                            <InputOTPSlot index={1} mask />
+                            <InputOTPSlot index={2} mask />
+                            <InputOTPSlot index={3} mask />
+                            <InputOTPSlot index={4} mask />
+                            <InputOTPSlot index={5} mask />
                           </InputOTPGroup>
                         </InputOTP>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label>New PIN</Label>
                         <InputOTP maxLength={6} value={newPin} onChange={setNewPin} data-testid="input-new-pin">
                           <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
-                            <InputOTPSlot index={4} />
-                            <InputOTPSlot index={5} />
+                            <InputOTPSlot index={0} mask />
+                            <InputOTPSlot index={1} mask />
+                            <InputOTPSlot index={2} mask />
+                            <InputOTPSlot index={3} mask />
+                            <InputOTPSlot index={4} mask />
+                            <InputOTPSlot index={5} mask />
                           </InputOTPGroup>
                         </InputOTP>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label>Confirm New PIN</Label>
                         <InputOTP maxLength={6} value={confirmNewPin} onChange={setConfirmNewPin} data-testid="input-confirm-new-pin">
                           <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
-                            <InputOTPSlot index={4} />
-                            <InputOTPSlot index={5} />
+                            <InputOTPSlot index={0} mask />
+                            <InputOTPSlot index={1} mask />
+                            <InputOTPSlot index={2} mask />
+                            <InputOTPSlot index={3} mask />
+                            <InputOTPSlot index={4} mask />
+                            <InputOTPSlot index={5} mask />
                           </InputOTPGroup>
                         </InputOTP>
                       </div>
@@ -361,6 +450,105 @@ export default function Security() {
                       </Button>
                     </div>
                   </div>
+                ) : showForgotPin ? (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Mail className="h-5 w-5 text-blue-600" />
+                        <span className="text-blue-800 font-medium">Reset PIN via Email</span>
+                      </div>
+                      <p className="text-sm text-blue-700">
+                        We'll send a verification code to your registered email address.
+                      </p>
+                    </div>
+
+                    {!forgotPinOtpSent ? (
+                      <Button
+                        onClick={handleForgotPinRequestOtp}
+                        disabled={forgotPinSendingOtp}
+                        className="w-full"
+                        data-testid="button-forgot-pin-send-otp"
+                      >
+                        {forgotPinSendingOtp ? (
+                          <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <Mail className="h-4 w-4 mr-2" />
+                        )}
+                        Send Verification Code
+                      </Button>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-sm text-center text-muted-foreground">
+                          Code sent to <strong>{maskedEmail}</strong>
+                        </p>
+
+                        <div className="space-y-2">
+                          <Label>Verification Code</Label>
+                          <InputOTP maxLength={6} value={forgotPinOtp} onChange={setForgotPinOtp} data-testid="input-forgot-pin-otp">
+                            <InputOTPGroup>
+                              <InputOTPSlot index={0} />
+                              <InputOTPSlot index={1} />
+                              <InputOTPSlot index={2} />
+                              <InputOTPSlot index={3} />
+                              <InputOTPSlot index={4} />
+                              <InputOTPSlot index={5} />
+                            </InputOTPGroup>
+                          </InputOTP>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>New PIN</Label>
+                          <InputOTP maxLength={6} value={forgotPinNewPin} onChange={setForgotPinNewPin} data-testid="input-forgot-pin-new">
+                            <InputOTPGroup>
+                              <InputOTPSlot index={0} mask />
+                              <InputOTPSlot index={1} mask />
+                              <InputOTPSlot index={2} mask />
+                              <InputOTPSlot index={3} mask />
+                              <InputOTPSlot index={4} mask />
+                              <InputOTPSlot index={5} mask />
+                            </InputOTPGroup>
+                          </InputOTP>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Confirm New PIN</Label>
+                          <InputOTP maxLength={6} value={forgotPinConfirmPin} onChange={setForgotPinConfirmPin} data-testid="input-forgot-pin-confirm">
+                            <InputOTPGroup>
+                              <InputOTPSlot index={0} mask />
+                              <InputOTPSlot index={1} mask />
+                              <InputOTPSlot index={2} mask />
+                              <InputOTPSlot index={3} mask />
+                              <InputOTPSlot index={4} mask />
+                              <InputOTPSlot index={5} mask />
+                            </InputOTPGroup>
+                          </InputOTP>
+                        </div>
+
+                        <Button
+                          onClick={handleForgotPinReset}
+                          disabled={forgotPinResetting || forgotPinOtp.length !== 6 || forgotPinNewPin.length !== 6 || forgotPinConfirmPin.length !== 6}
+                          className="w-full"
+                          data-testid="button-forgot-pin-reset"
+                        >
+                          {forgotPinResetting ? (
+                            <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <Lock className="h-4 w-4 mr-2" />
+                          )}
+                          Reset PIN
+                        </Button>
+                      </div>
+                    )}
+
+                    <Button
+                      variant="ghost"
+                      onClick={handleCancelForgotPin}
+                      className="w-full"
+                      data-testid="button-cancel-forgot-pin"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between p-3 rounded-lg bg-green-50 border border-green-200">
@@ -374,15 +562,24 @@ export default function Security() {
                         </span>
                       )}
                     </div>
-                    
-                    <Button 
-                      variant="outline" 
+
+                    <Button
+                      variant="outline"
                       onClick={() => setShowChangePin(true)}
                       className="w-full"
                       data-testid="button-show-change-pin"
                     >
                       <Key className="h-4 w-4 mr-2" />
                       Change PIN
+                    </Button>
+
+                    <Button
+                      variant="link"
+                      onClick={() => setShowForgotPin(true)}
+                      className="w-full text-sm"
+                      data-testid="button-show-forgot-pin"
+                    >
+                      Forgot PIN?
                     </Button>
                   </div>
                 )}

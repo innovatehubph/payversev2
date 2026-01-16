@@ -321,6 +321,7 @@ export const emailTemplates = {
       password_reset: "Password Reset",
       transaction: "Transaction Verification",
       pin_change: "PIN Change Verification",
+      pin_reset: "PIN Reset Verification",
       large_transfer: "Large Transfer Verification",
     };
     const purposeLabel = purposeLabels[data.purpose] || "Verification";

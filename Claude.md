@@ -86,6 +86,57 @@ A comprehensive manual withdrawal system has been implemented allowing users to 
 
 ---
 
+### PIN Security & Email OTP Feature - COMPLETED
+
+Enhanced PIN security with masked inputs and email-based PIN reset functionality.
+
+#### Features Implemented:
+
+**1. Masked PIN Input**
+- Updated `InputOTPSlot` component to support `mask` prop
+- PIN digits now display as bullets (•) instead of actual numbers
+- Applied to all PIN inputs: setup, change, verification, forgot PIN
+
+**2. Forgot PIN Flow**
+- Users can reset PIN without knowing current PIN
+- Email OTP verification required
+- Flow: Request OTP → Enter verification code + new PIN → Reset
+- PIN lockout is cleared after successful reset
+
+**3. Email Service** (`server/email-service.ts`)
+- Reads SMTP credentials from system settings (database)
+- HTML email templates with logo support
+- Logo URL configurable in system settings (`EMAIL_LOGO_URL`)
+- Transporter caching for performance
+
+**4. New API Endpoints** (`server/security.ts`)
+- `POST /api/security/pin/reset/request` - Request OTP for PIN reset
+- `POST /api/security/pin/reset/confirm` - Confirm PIN reset with OTP
+
+**5. System Settings** (`server/settings.ts`)
+- Added `EMAIL_LOGO_URL` setting for email templates
+- SMTP settings: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+- All email settings configurable in Super Admin → System Settings
+
+**6. Frontend Updates** (`client/src/pages/security.tsx`)
+- Added "Forgot PIN?" link in Security page
+- Forgot PIN UI with OTP request and PIN reset form
+- All PIN inputs now use masked display
+
+#### Files Modified/Created:
+- `client/src/components/ui/input-otp.tsx` - Added `mask` prop to InputOTPSlot
+- `client/src/pages/security.tsx` - Added forgot PIN UI and handlers
+- `client/src/pages/send.tsx` - Added mask to PIN input
+- `client/src/pages/manual-withdrawal.tsx` - Added mask to PIN input
+- `client/src/pages/qrph.tsx` - Added mask to PIN input
+- `client/src/pages/casino.tsx` - Added mask to PIN input
+- `server/security.ts` - Added PIN reset endpoints
+- `server/email.ts` - Added "pin_reset" purpose label
+- `server/settings.ts` - Added EMAIL_LOGO_URL setting
+- `server/email-service.ts` - New email service module (alternative)
+
+---
+
 ## Previous Updates
 
 ### Bug Fixes - January 2026

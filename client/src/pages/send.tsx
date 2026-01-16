@@ -429,12 +429,12 @@ export default function Send() {
                 <div className="flex justify-center">
                   <InputOTP maxLength={6} value={pin} onChange={setPin}>
                     <InputOTPGroup>
-                      <InputOTPSlot index={0} className="h-11 w-10" />
-                      <InputOTPSlot index={1} className="h-11 w-10" />
-                      <InputOTPSlot index={2} className="h-11 w-10" />
-                      <InputOTPSlot index={3} className="h-11 w-10" />
-                      <InputOTPSlot index={4} className="h-11 w-10" />
-                      <InputOTPSlot index={5} className="h-11 w-10" />
+                      <InputOTPSlot index={0} className="h-11 w-10" mask />
+                      <InputOTPSlot index={1} className="h-11 w-10" mask />
+                      <InputOTPSlot index={2} className="h-11 w-10" mask />
+                      <InputOTPSlot index={3} className="h-11 w-10" mask />
+                      <InputOTPSlot index={4} className="h-11 w-10" mask />
+                      <InputOTPSlot index={5} className="h-11 w-10" mask />
                     </InputOTPGroup>
                   </InputOTP>
                 </div>

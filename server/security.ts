@@ -198,6 +198,95 @@ router.post("/pin/change/request-otp", authMiddleware, async (req: Request, res:
   }
 });
 
+// Forgot PIN - Request OTP (no current PIN required)
+router.post("/pin/reset/request", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const freshUser = await storage.getUser(req.user!.id);
+    if (!freshUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    if (!freshUser.pinHash) {
+      return res.status(400).json({ message: "No PIN set. Please set up a PIN first." });
+    }
+
+    const otp = generateSecureOtp();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await storage.createEmailOtp({
+      email: freshUser.email,
+      otp,
+      purpose: "pin_reset",
+      expiresAt,
+    });
+
+    const sent = await sendOtpEmail(freshUser.email, freshUser.fullName, otp, "pin_reset");
+
+    if (!sent) {
+      return res.status(500).json({ message: "Failed to send OTP email. Please try again." });
+    }
+
+    console.log(`[Security] PIN reset OTP sent to ${freshUser.email}`);
+
+    res.json({
+      success: true,
+      message: "Verification code sent to your email",
+      email: freshUser.email.replace(/(.{2}).*(@.*)/, "$1***$2") // Mask email
+    });
+  } catch (error: any) {
+    console.error("[Security] Failed to request PIN reset OTP:", error);
+    res.status(500).json({ message: "Failed to send verification code" });
+  }
+});
+
+// Forgot PIN - Confirm reset with OTP
+router.post("/pin/reset/confirm", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const freshUser = await storage.getUser(req.user!.id);
+    if (!freshUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    const { otp, newPin } = req.body;
+
+    if (!otp || otp.length !== 6) {
+      return res.status(400).json({ message: "Please enter a valid 6-digit verification code" });
+    }
+
+    if (!newPin || newPin.length !== 6 || !/^\d{6}$/.test(newPin)) {
+      return res.status(400).json({ message: "Please enter a valid 6-digit PIN" });
+    }
+
+    // Verify OTP
+    const otpResult = await storage.verifyEmailOtp(freshUser.email, otp, "pin_reset");
+    if (!otpResult.valid) {
+      return res.status(400).json({ message: otpResult.message || "Invalid or expired verification code" });
+    }
+
+    // Hash and update PIN
+    const newPinHash = await bcrypt.hash(newPin, 10);
+    await storage.updateUserPin(freshUser.id, newPinHash);
+
+    // Reset any PIN lockout
+    await storage.updateUserPinAttempts(freshUser.id, 0, null);
+
+    // Send confirmation email
+    sendPasswordChangedEmail(freshUser.email, freshUser.fullName, "PIN").catch(err => {
+      console.error("[Security] Failed to send PIN reset confirmation email:", err);
+    });
+
+    console.log(`[Security] PIN reset successful for user ${freshUser.id}`);
+
+    res.json({ success: true, message: "PIN reset successfully" });
+  } catch (error: any) {
+    console.error("[Security] Failed to reset PIN:", error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.errors[0].message });
+    }
+    res.status(500).json({ message: "Failed to reset PIN" });
+  }
+});
+
 router.post("/password/reset/request", async (req: Request, res: Response) => {
   try {
     const body = passwordResetRequestSchema.parse(req.body);
