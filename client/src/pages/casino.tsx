@@ -435,6 +435,8 @@ export default function Casino() {
     const endpoint = isDeposit ? "/api/casino/deposit" : "/api/casino/withdraw";
 
     setProcessing(true);
+    let shouldCloseDialog = true; // Track whether to close dialog
+
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -466,7 +468,7 @@ export default function Casino() {
         } else if (data.attemptsRemaining !== undefined) {
           toast({ title: "Invalid PIN", description: data.message, variant: "destructive" });
           setPin(""); // Clear PIN for retry
-          return; // Don't close dialog on invalid PIN
+          shouldCloseDialog = false; // Keep dialog open for retry
         } else {
           toast({ title: "Failed", description: data.message, variant: "destructive" });
         }
@@ -475,9 +477,11 @@ export default function Casino() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setProcessing(false);
-      setShowPinDialog(false);
-      setPin("");
-      setPendingAction(null);
+      if (shouldCloseDialog) {
+        setShowPinDialog(false);
+        setPin("");
+        setPendingAction(null);
+      }
     }
   };
 
