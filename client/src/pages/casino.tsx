@@ -677,8 +677,7 @@ export default function Casino() {
               </CardContent>
             </Card>
 
-            {/* Buy/Sell Chips - Only for player accounts */}
-            {!status.isAgent && (
+            {/* Buy/Sell Chips - Available for both players and agents */}
             <Card>
               <CardContent className="p-4">
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "deposit" | "withdraw")}>
@@ -793,25 +792,6 @@ export default function Casino() {
                 </Tabs>
               </CardContent>
             </Card>
-            )}
-
-            {/* Agent Notice - for agent accounts */}
-            {status.isAgent && (
-              <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-amber-800 dark:text-amber-200">Agent Account</p>
-                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                        Agent accounts cannot buy or sell chips through PayVerse. 
-                        Please use the 747Live dashboard to manage your balance and transfers.
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             {/* Casino Statistics Card */}
             {casinoStats && (
