@@ -1,24 +1,37 @@
 import type { Express, Request, Response } from "express";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
 import { authMiddleware } from "./auth";
 import { storage } from "./storage";
 import { transferFromAdminWallet, transferToAdminWallet, getUserPhptBalance } from "./paygram";
 import { adminRateLimiter, sensitiveActionRateLimiter } from "./admin";
-
-const NEXUSPAY_BASE_URL = process.env.NEXUSPAY_BASE_URL || "https://nexuspay.cloud";
+import { balanceService } from "./balance-service";
+import { getSystemSetting } from "./settings";
 
 interface NexusPayConfig {
+  baseUrl: string;
   username: string;
   password: string;
   merchantId: string;
   key: string;
 }
 
-function getConfig(): NexusPayConfig | null {
-  const username = process.env.NEXUSPAY_USERNAME;
-  const password = process.env.NEXUSPAY_PASSWORD;
-  const merchantId = process.env.NEXUSPAY_MERCHANT_ID;
-  const key = process.env.NEXUSPAY_KEY;
+// Cache for config to avoid repeated DB queries
+let configCache: { config: NexusPayConfig | null; timestamp: number } | null = null;
+const CONFIG_CACHE_TTL = 30000; // 30 seconds
+
+async function getConfig(): Promise<NexusPayConfig | null> {
+  // Check cache first
+  if (configCache && Date.now() - configCache.timestamp < CONFIG_CACHE_TTL) {
+    return configCache.config;
+  }
+
+  // Load from database (falls back to env vars)
+  const baseUrl = await getSystemSetting("NEXUSPAY_BASE_URL", "https://nexuspay.cloud");
+  const username = await getSystemSetting("NEXUSPAY_USERNAME", "");
+  const password = await getSystemSetting("NEXUSPAY_PASSWORD", "");
+  const merchantId = await getSystemSetting("NEXUSPAY_MERCHANT_ID", "");
+  const key = await getSystemSetting("NEXUSPAY_KEY", "");
 
   if (!username || !password || !merchantId || !key) {
     console.error("[NexusPay] Configuration incomplete - missing:", {
@@ -27,10 +40,18 @@ function getConfig(): NexusPayConfig | null {
       merchantId: !merchantId,
       key: !key
     });
+    configCache = { config: null, timestamp: Date.now() };
     return null;
   }
 
-  return { username, password, merchantId, key };
+  const config = { baseUrl, username, password, merchantId, key };
+  configCache = { config, timestamp: Date.now() };
+  return config;
+}
+
+// Clear config cache (call when settings are updated)
+export function clearNexusPayConfigCache(): void {
+  configCache = null;
 }
 
 interface CSRFSession {
@@ -38,13 +59,13 @@ interface CSRFSession {
   sessionCookie: string;
 }
 
-async function getCSRFSession(): Promise<CSRFSession | null> {
+async function getCSRFSession(baseUrl: string): Promise<CSRFSession | null> {
   try {
-    console.log(`[NexusPay] Step 1: Getting CSRF token from ${NEXUSPAY_BASE_URL}/api/csrf_token`);
-    
-    const response = await fetch(`${NEXUSPAY_BASE_URL}/api/csrf_token`, {
+    console.log(`[NexusPay] Step 1: Getting CSRF token from ${baseUrl}/api/csrf_token`);
+
+    const response = await fetch(`${baseUrl}/api/csrf_token`, {
       method: "GET",
-      headers: { 
+      headers: {
         "Accept": "application/json",
         "User-Agent": "PayVerse/1.0"
       }
@@ -105,7 +126,7 @@ interface AuthSession {
 }
 
 async function getFreshAuthSession(): Promise<AuthSession | null> {
-  const config = getConfig();
+  const config = await getConfig();
   if (!config) {
     console.error("[NexusPay] Cannot login - configuration missing");
     return null;
@@ -113,8 +134,8 @@ async function getFreshAuthSession(): Promise<AuthSession | null> {
 
   try {
     // Get CSRF session (token + session cookie)
-    const csrfSession = await getCSRFSession();
-    
+    const csrfSession = await getCSRFSession(config.baseUrl);
+
     if (!csrfSession) {
       console.error("[NexusPay] CSRF session request failed");
       return null;
@@ -136,10 +157,10 @@ async function getFreshAuthSession(): Promise<AuthSession | null> {
       password: config.password
     };
 
-    console.log(`[NexusPay] Login request to ${NEXUSPAY_BASE_URL}/api/create/login`);
+    console.log(`[NexusPay] Login request to ${config.baseUrl}/api/create/login`);
     console.log(`[NexusPay] Using session cookie: ${csrfSession.sessionCookie.substring(0, 30)}...`);
-    
-    const response = await fetch(`${NEXUSPAY_BASE_URL}/api/create/login`, {
+
+    const response = await fetch(`${config.baseUrl}/api/create/login`, {
       method: "POST",
       headers,
       body: JSON.stringify(loginBody)
@@ -199,15 +220,12 @@ async function getFreshAuthToken(): Promise<string | null> {
   return session?.token || null;
 }
 
-function encryptPayload(payload: object): string {
-  const config = getConfig();
-  if (!config) throw new Error("NexusPay not configured");
-
+function encryptPayload(payload: object, config: NexusPayConfig): string {
   // AES-128-CBC encryption (Key Size: 128 bits = 16 bytes)
   // IV = Merchant ID (16 bytes)
   // Secret Key = Merchant Key (16 bytes)
   // Padding: PKCS5Padding (handled automatically by Node.js crypto)
-  
+
   const keyBuffer = Buffer.from(config.key, "utf8");
   const ivBuffer = Buffer.from(config.merchantId, "utf8");
   
@@ -233,7 +251,7 @@ function encryptPayload(payload: object): string {
 
 export function registerNexusPayRoutes(app: Express) {
   app.get("/api/nexuspay/status", authMiddleware, async (req: Request, res: Response) => {
-    const config = getConfig();
+    const config = await getConfig();
     if (!config) {
       return res.json({
         configured: false,
@@ -261,7 +279,7 @@ export function registerNexusPayRoutes(app: Express) {
   app.post("/api/nexuspay/cashin", authMiddleware, async (req: Request, res: Response) => {
     try {
       const { amount } = req.body;
-      
+
       // NexusPay requires minimum ₱100 for cash-in
       if (!amount || parseFloat(amount) < 100) {
         return res.status(400).json({
@@ -272,6 +290,14 @@ export function registerNexusPayRoutes(app: Express) {
 
       console.log(`[NexusPay] === Starting Cash-In Request for ₱${amount} ===`);
 
+      const config = await getConfig();
+      if (!config) {
+        return res.status(503).json({
+          success: false,
+          message: "Payment gateway not configured. Please contact support."
+        });
+      }
+
       const token = await getFreshAuthToken();
       if (!token) {
         return res.status(503).json({
@@ -281,19 +307,19 @@ export function registerNexusPayRoutes(app: Express) {
       }
 
       // Use PUBLIC_APP_URL for production, fallback to dev domain or default
-      const baseUrl = process.env.PUBLIC_APP_URL 
+      const appBaseUrl = process.env.PUBLIC_APP_URL
         || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
         || "https://payverse.innovatehub.site";
-      
-      const webhookUrl = `${baseUrl}/api/nexuspay/webhook`;
+
+      const webhookUrl = `${appBaseUrl}/api/nexuspay/webhook`;
       console.log(`[NexusPay] Using webhook URL: ${webhookUrl}`);
-      const redirectUrl = `${baseUrl}/qrph?status=success`;
+      const redirectUrl = `${appBaseUrl}/qrph?status=success`;
 
       console.log(`[NexusPay] Step 3: Creating GCash cash-in for ₱${amount}`);
       console.log(`[NexusPay] Webhook: ${webhookUrl}`);
       console.log(`[NexusPay] Redirect: ${redirectUrl}`);
 
-      const response = await fetch(`${NEXUSPAY_BASE_URL}/api/pay_cashin`, {
+      const response = await fetch(`${config.baseUrl}/api/pay_cashin`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -336,14 +362,16 @@ export function registerNexusPayRoutes(app: Express) {
       }
 
       if (data.status === "success" && data.link) {
+        // Create pending transaction - senderId is null (external), receiverId is the user
         await storage.createTransaction({
-          senderId: req.user!.id,
+          senderId: null, // External payment source
           receiverId: req.user!.id,
           amount: String(amount),
           type: "qrph_cashin",
           status: "pending",
           note: `GCash QR payment - ${data.transactionId || 'pending'}`,
-          walletType: "php"
+          walletType: "phpt", // Will receive PHPT after payment confirmation
+          externalTxId: data.transactionId || null,
         });
 
         console.log(`[NexusPay] Cash-in created successfully: ${data.transactionId}`);
@@ -379,6 +407,14 @@ export function registerNexusPayRoutes(app: Express) {
 
       console.log(`[NexusPay] Checking cash-in status for: ${transactionId}`);
 
+      const config = await getConfig();
+      if (!config) {
+        return res.status(503).json({
+          success: false,
+          message: "Payment gateway not configured"
+        });
+      }
+
       const token = await getFreshAuthToken();
       if (!token) {
         return res.status(503).json({
@@ -387,9 +423,9 @@ export function registerNexusPayRoutes(app: Express) {
         });
       }
 
-      const response = await fetch(`${NEXUSPAY_BASE_URL}/api/cashin_transactions_status/${transactionId}`, {
+      const response = await fetch(`${config.baseUrl}/api/cashin_transactions_status/${transactionId}`, {
         method: "GET",
-        headers: { 
+        headers: {
           "Authorization": `Bearer ${token}`,
           "Accept": "application/json",
           "User-Agent": "PayVerse/1.0"
@@ -406,13 +442,12 @@ export function registerNexusPayRoutes(app: Express) {
         return res.status(500).json({ success: false, message: "Invalid response" });
       }
 
-      const txStatus = (data.transaction_state || data.status || "").toString().toLowerCase();
+      // Check multiple possible status fields from NexusPay response
+      const txStatus = (data.transaction_status || data.transaction_state || data.status || "").toString().toLowerCase();
       const successStatuses = ["success", "successful", "completed", "paid"];
-      
-      // STRICTER check: Only consider payment successful if transaction_state explicitly indicates completion
-      // Removed the fallback (data.success && data.reference_number) as NexusPay may return these for pending transactions
+
       const isPaymentSuccessful = successStatuses.includes(txStatus);
-      
+
       console.log(`[NexusPay] Status check: txStatus="${txStatus}", isPaymentSuccessful=${isPaymentSuccessful}, data.success=${data.success}`);
       
       // If payment is successful, trigger the credit flow (same as webhook)
@@ -422,7 +457,7 @@ export function registerNexusPayRoutes(app: Express) {
         // Find the pending transaction
         const pendingTx = await storage.findPendingQrphTransaction(transactionId);
         
-        if (pendingTx && pendingTx.senderId && pendingTx.status === "pending") {
+        if (pendingTx && pendingTx.receiverId && pendingTx.status === "pending") {
           // IDEMPOTENCY: Mark as "processing" first to prevent duplicate credits from webhook/poll race
           const claimed = await storage.claimQrphTransaction(pendingTx.id);
           if (!claimed) {
@@ -438,7 +473,7 @@ export function registerNexusPayRoutes(app: Express) {
           
           console.log(`[NexusPay] Claimed tx ${pendingTx.id}, processing credit...`);
           
-          const user = await storage.getUser(pendingTx.senderId);
+          const user = await storage.getUser(pendingTx.receiverId!);
           if (!user) {
             console.error(`[NexusPay] User not found for transaction ${pendingTx.id}, reverting to pending`);
             await storage.updateTransactionStatus(pendingTx.id, "pending");
@@ -472,30 +507,26 @@ export function registerNexusPayRoutes(app: Express) {
           const transferResult = await transferFromAdminWallet(userCliId, txAmount);
           
           if (transferResult.success) {
-            // Mark as completed
+            // Mark original qrph_cashin as completed
             await storage.updateTransactionStatus(pendingTx.id, "completed");
-            
+
+            // Use balanceService for atomic balance update + transaction record
             try {
-              const balanceResult = await storage.creditPhptBalance(pendingTx.senderId, txAmount);
-              console.log(`[NexusPay] Local balance updated: PHPT ${balanceResult.newPhptBalance}`);
+              const creditResult = await balanceService.creditFromPaygram({
+                userId: pendingTx.receiverId!,
+                amount: txAmount,
+                type: "qrph_credit",
+                note: `PHPT credited from QRPH payment ${transactionId}`,
+                paygramTxId: transferResult.transactionId,
+              });
+              console.log(`[NexusPay] Local balance updated via balanceService: PHPT ${creditResult.newBalance}`);
             } catch (balanceError) {
               console.error(`[NexusPay] Failed to update local balance:`, balanceError);
+              // Don't fail the whole operation - PayGram transfer succeeded
             }
-            
-            // Create credit transaction record
-            await storage.createTransaction({
-              senderId: null,
-              receiverId: pendingTx.senderId,
-              amount: txAmount.toFixed(2),
-              type: "qrph_credit",
-              status: "completed",
-              category: "QRPH Cash-In",
-              note: `PHPT credited from QRPH payment ${transactionId}`,
-              walletType: "phpt"
-            });
-            
+
             console.log(`[NexusPay] Successfully credited ${txAmount} PHPT via status check`);
-            
+
             // Return success with completed status
             return res.json({
               success: true,
@@ -526,7 +557,7 @@ export function registerNexusPayRoutes(app: Express) {
         success: data.success,
         referenceNumber: data.reference_number,
         amount: data.total_amount,
-        status: data.transaction_state,
+        status: data.transaction_status || data.transaction_state || data.status,
         message: data.message
       });
     } catch (error: any) {
@@ -539,7 +570,7 @@ export function registerNexusPayRoutes(app: Express) {
   // Flow: 1. Transfer PHPT from user to admin wallet → 2. NexusPay sends PHP to user's e-wallet
   app.post("/api/nexuspay/cashout", authMiddleware, async (req: Request, res: Response) => {
     try {
-      const { amount, accountNumber, accountName, provider = "gcash" } = req.body;
+      const { amount, accountNumber, accountName, provider = "gcash", pin } = req.body;
       const payoutAmount = parseFloat(amount);
 
       if (!amount || payoutAmount < 1) {
@@ -555,6 +586,67 @@ export function registerNexusPayRoutes(app: Express) {
           message: "Account number is required"
         });
       }
+
+      // Get full user record for PIN verification
+      const fullUser = await storage.getUser(req.user!.id);
+      if (!fullUser) {
+        return res.status(401).json({ success: false, message: "User not found" });
+      }
+
+      // PIN verification required for cashout transactions
+      if (!fullUser.pinHash) {
+        return res.status(400).json({
+          success: false,
+          message: "PIN required. Please set up your PIN in Security settings first.",
+          requiresPin: true,
+          needsPinSetup: true
+        });
+      }
+
+      if (!pin) {
+        return res.status(400).json({
+          success: false,
+          message: "PIN required for cashout transactions",
+          requiresPin: true
+        });
+      }
+
+      // Check PIN lockout
+      if (fullUser.pinLockedUntil && new Date(fullUser.pinLockedUntil) > new Date()) {
+        const remainingMinutes = Math.ceil((new Date(fullUser.pinLockedUntil).getTime() - Date.now()) / 60000);
+        return res.status(423).json({
+          success: false,
+          message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
+          lockedUntil: fullUser.pinLockedUntil
+        });
+      }
+
+      // Verify PIN
+      const isValidPin = await bcrypt.compare(pin, fullUser.pinHash);
+      if (!isValidPin) {
+        const newAttempts = (fullUser.pinFailedAttempts || 0) + 1;
+        const maxAttempts = 5;
+
+        if (newAttempts >= maxAttempts) {
+          const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
+          await storage.updateUserPinAttempts(fullUser.id, newAttempts, lockUntil);
+          return res.status(423).json({
+            success: false,
+            message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
+            lockedUntil: lockUntil
+          });
+        }
+
+        await storage.updateUserPinAttempts(fullUser.id, newAttempts, null);
+        return res.status(401).json({
+          success: false,
+          message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
+          attemptsRemaining: maxAttempts - newAttempts
+        });
+      }
+
+      // Reset failed attempts on success
+      await storage.updateUserPinAttempts(fullUser.id, 0, null);
 
       const userCliId = req.user!.username || req.user!.email;
       console.log(`[QRPH Payout] === Starting for user ${userCliId}: ${payoutAmount} PHPT → ₱${payoutAmount} to ${accountNumber} via ${provider} ===`);
@@ -614,11 +706,11 @@ export function registerNexusPayRoutes(app: Express) {
       const { token, sessionCookie } = authSession;
       console.log(`[QRPH Payout] Auth session obtained, cookie: ${sessionCookie.substring(0, 25)}...`);
 
-      const config = getConfig();
+      const config = await getConfig();
       if (!config) {
         console.error(`[QRPH Payout] NexusPay not configured - initiating refund`);
         const refundResult = await transferFromAdminWallet(userCliId, payoutAmount);
-        
+
         return res.status(503).json({
           success: false,
           message: "Payment gateway not configured. Your PHPT has been refunded.",
@@ -647,7 +739,7 @@ export function registerNexusPayRoutes(app: Express) {
         name: accountName || req.user!.fullName || "PayVerse User",
         amount: String(payoutAmount)  // MUST be string per NexusPay docs
       };
-      
+
       // Generate unique transaction ID for this payout
       const merchantPaymentTxId = `PV${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
@@ -656,11 +748,11 @@ export function registerNexusPayRoutes(app: Express) {
 
       let encryptedData: string;
       try {
-        encryptedData = encryptPayload(payloadToEncrypt);
+        encryptedData = encryptPayload(payloadToEncrypt, config);
       } catch (error: any) {
         console.error("[QRPH Payout] Encryption failed - initiating refund:", error);
         const refundResult = await transferFromAdminWallet(userCliId, payoutAmount);
-        
+
         return res.status(500).json({
           success: false,
           message: "Payment processing error. Your PHPT has been refunded.",
@@ -671,7 +763,7 @@ export function registerNexusPayRoutes(app: Express) {
       // Use encrypted payload in X-data header per NexusPay API v2 docs
       console.log(`[QRPH Payout] Sending request with Bearer token, X-data encrypted, X-code: ${xCode}`);
       console.log(`[QRPH Payout] merchant_payment_transaction_id: ${merchantPaymentTxId}`);
-      const response = await fetch(`${NEXUSPAY_BASE_URL}/api/create_pay_out`, {
+      const response = await fetch(`${config.baseUrl}/api/create_pay_out`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -859,10 +951,10 @@ export function registerNexusPayRoutes(app: Express) {
       console.log("[NexusPay] Webhook headers:", JSON.stringify(req.headers));
       
       // NexusPay webhook payload fields (handle multiple variations)
-      const { transactionId, transaction_id, status, amount, total_amount, reference, reference_number } = req.body;
+      const { transactionId, transaction_id, status, transaction_status, amount, total_amount, reference, reference_number } = req.body;
       const txId = transactionId || transaction_id;
       const rawAmount = amount || total_amount;
-      const txStatus = (status || "").toString().toLowerCase();
+      const txStatus = (transaction_status || status || "").toString().toLowerCase();
 
       // Validate and parse amount
       let txAmount: number = 0;
@@ -887,12 +979,12 @@ export function registerNexusPayRoutes(app: Express) {
           return res.json({ received: true, status: "ok", note: "no pending tx" });
         }
         
-        if (!pendingTx.senderId) {
-          console.error(`[NexusPay] Transaction ${pendingTx.id} has no sender ID`);
-          return res.json({ received: true, status: "ok", error: "no sender" });
+        if (!pendingTx.receiverId) {
+          console.error(`[NexusPay] Transaction ${pendingTx.id} has no receiver ID`);
+          return res.json({ received: true, status: "ok", error: "no receiver" });
         }
-        
-        console.log(`[NexusPay] Found transaction ID ${pendingTx.id} for user ${pendingTx.senderId}, status: ${pendingTx.status}`);
+
+        console.log(`[NexusPay] Found transaction ID ${pendingTx.id} for user ${pendingTx.receiverId}, status: ${pendingTx.status}`);
         
         // Skip if already completed or being processed
         if (pendingTx.status === "completed") {
@@ -915,7 +1007,7 @@ export function registerNexusPayRoutes(app: Express) {
         console.log(`[NexusPay] Claimed transaction ${pendingTx.id}, proceeding with credit...`);
         
         // Get user to get their userCliId
-        const user = await storage.getUser(pendingTx.senderId);
+        const user = await storage.getUser(pendingTx.receiverId!);
         
         if (!user) {
           console.error(`[NexusPay] User not found for transaction ${pendingTx.id}`);
@@ -947,27 +1039,22 @@ export function registerNexusPayRoutes(app: Express) {
         if (transferResult.success) {
           // Only mark as completed AFTER successful transfer
           await storage.updateTransactionStatus(pendingTx.id, "completed");
-          
-          // Credit the user's local PayVerse PHPT balance (sync with PayGram transfer)
+
+          // Use balanceService for atomic balance update + transaction record
           try {
-            const balanceResult = await storage.creditPhptBalance(pendingTx.senderId, phptAmount);
-            console.log(`[NexusPay] Updated local balance for user ${user.id}: PHPT ${balanceResult.newPhptBalance}, Total ${balanceResult.newTotalBalance}`);
+            const creditResult = await balanceService.creditFromPaygram({
+              userId: pendingTx.receiverId!,
+              amount: phptAmount,
+              type: "qrph_credit",
+              note: `PHPT credited from QRPH payment ${txId}`,
+              paygramTxId: transferResult.transactionId,
+            });
+            console.log(`[NexusPay] Updated local balance via balanceService for user ${user.id}: PHPT ${creditResult.newBalance}`);
           } catch (balanceError) {
             console.error(`[NexusPay] Failed to update local balance for user ${user.id}:`, balanceError);
+            // Don't fail - PayGram transfer already succeeded
           }
-          
-          // Create a credit transaction record
-          await storage.createTransaction({
-            senderId: null, // From admin/system
-            receiverId: pendingTx.senderId,
-            amount: phptAmount.toFixed(2),
-            type: "qrph_credit",
-            status: "completed",
-            category: "QRPH Cash-In",
-            note: `PHPT credited from QRPH payment ${txId}`,
-            walletType: "phpt"
-          });
-          
+
           console.log(`[NexusPay] Successfully credited ${phptAmount} PHPT to user ${user.id}`);
         } else {
           // Transfer failed - revert to pending for retry
@@ -991,9 +1078,17 @@ export function registerNexusPayRoutes(app: Express) {
 
       console.log(`[NexusPay] Checking payout status for: ${id}`);
 
-      const response = await fetch(`${NEXUSPAY_BASE_URL}/api/payoutstatus/${id}`, {
+      const config = await getConfig();
+      if (!config) {
+        return res.status(503).json({
+          success: false,
+          message: "Payment gateway not configured"
+        });
+      }
+
+      const response = await fetch(`${config.baseUrl}/api/payoutstatus/${id}`, {
         method: "GET",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "User-Agent": "PayVerse/1.0"
         }
@@ -1030,7 +1125,8 @@ export function registerNexusPayRoutes(app: Express) {
     try {
       const pendingTxs = await storage.getPendingQrphTransactions();
       const txsWithUsers = await Promise.all(pendingTxs.map(async (tx) => {
-        const user = tx.senderId ? await storage.getUser(tx.senderId) : null;
+        // QRPH transactions have receiverId as the user (senderId is null for external)
+        const user = tx.receiverId ? await storage.getUser(tx.receiverId) : null;
         return {
           ...tx,
           userName: user?.fullName,
@@ -1066,19 +1162,20 @@ export function registerNexusPayRoutes(app: Express) {
       if (tx.status === "completed") {
         return res.status(400).json({ success: false, message: "Transaction already completed" });
       }
-      
-      if (!tx.senderId) {
-        return res.status(400).json({ success: false, message: "Transaction has no user" });
+
+      // QRPH transactions have senderId=null (external), receiverId=userId
+      if (!tx.receiverId) {
+        return res.status(400).json({ success: false, message: "Transaction has no recipient" });
       }
-      
-      const user = await storage.getUser(tx.senderId);
+
+      const user = await storage.getUser(tx.receiverId);
       if (!user) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
-      
+
       const userCliId = user.username || user.email;
       const phptAmount = parseFloat(tx.amount);
-      
+
       console.log(`[NexusPay Admin] Processing pending tx ${txId}: ${phptAmount} PHPT for ${userCliId}`);
       
       // Transfer PHPT from admin wallet to user
@@ -1086,35 +1183,28 @@ export function registerNexusPayRoutes(app: Express) {
       
       if (transferResult.success) {
         await storage.updateTransactionStatus(txId, "completed");
-        
-        // Credit the user's local PayVerse PHPT balance (sync with PayGram transfer)
-        // This MUST succeed to maintain balance consistency
-        const balanceResult = await storage.creditPhptBalance(tx.senderId, phptAmount);
-        console.log(`[NexusPay Admin] Updated local balance for user ${tx.senderId}: PHPT ${balanceResult.newPhptBalance}, Total ${balanceResult.newTotalBalance}`);
-        
-        // Create credit transaction record
-        await storage.createTransaction({
-          senderId: null,
-          receiverId: tx.senderId,
-          amount: phptAmount.toFixed(2),
+
+        // Use balanceService for atomic balance update + transaction record
+        const creditResult = await balanceService.creditFromPaygram({
+          userId: tx.receiverId!,
+          amount: phptAmount,
           type: "qrph_credit",
-          status: "completed",
-          category: "QRPH Cash-In",
           note: `PHPT credited (manual) from tx ${txId}`,
-          walletType: "phpt"
+          paygramTxId: transferResult.transactionId,
         });
+        console.log(`[NexusPay Admin] Updated local balance via balanceService for user ${tx.receiverId}: PHPT ${creditResult.newBalance}`);
         
         // Create audit log for manual QRPH credit
         await storage.createAdminAuditLog({
           adminId: req.user.id,
           action: "qrph_manual_credit",
           targetType: "user",
-          targetId: tx.senderId,
-          details: JSON.stringify({ 
-            transactionId: txId, 
-            amount: phptAmount, 
+          targetId: tx.receiverId,
+          details: JSON.stringify({
+            transactionId: txId,
+            amount: phptAmount,
             userCliId,
-            paygramTxId: transferResult.transactionId 
+            paygramTxId: transferResult.transactionId
           }),
           ipAddress: req.ip || req.socket?.remoteAddress || null,
           userAgent: req.headers["user-agent"] || null,
@@ -1139,92 +1229,6 @@ export function registerNexusPayRoutes(app: Express) {
       }
     } catch (error: any) {
       console.error("[NexusPay Admin] Process error:", error);
-      res.status(500).json({ success: false, message: error.message });
-    }
-  });
-
-  // Admin endpoint to directly credit PHPT locally (bypasses PayGram when it has issues)
-  // Use this when PayGram transfer fails due to insufficient balance or API errors
-  app.post("/api/admin/qrph/direct-credit/:id", authMiddleware, adminRateLimiter, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
-    if (!req.user?.isAdmin) {
-      return res.status(403).json({ message: "Admin access required" });
-    }
-    
-    try {
-      const txId = parseInt(req.params.id);
-      const tx = await storage.getTransaction(txId);
-      
-      if (!tx) {
-        return res.status(404).json({ success: false, message: "Transaction not found" });
-      }
-      
-      if (tx.type !== "qrph_cashin") {
-        return res.status(400).json({ success: false, message: "Not a QRPH cash-in transaction" });
-      }
-      
-      if (tx.status === "completed") {
-        return res.status(400).json({ success: false, message: "Transaction already completed" });
-      }
-      
-      if (!tx.senderId) {
-        return res.status(400).json({ success: false, message: "Transaction has no user" });
-      }
-      
-      const user = await storage.getUser(tx.senderId);
-      if (!user) {
-        return res.status(404).json({ success: false, message: "User not found" });
-      }
-      
-      const phptAmount = parseFloat(tx.amount);
-      
-      console.log(`[NexusPay Admin] Direct credit tx ${txId}: ${phptAmount} PHPT for user ${user.username}`);
-      
-      // Directly credit the local balance (bypass PayGram)
-      const balanceResult = await storage.creditPhptBalance(tx.senderId, phptAmount);
-      
-      // Mark original transaction as completed
-      await storage.updateTransactionStatus(txId, "completed");
-      
-      // Create credit transaction record
-      await storage.createTransaction({
-        senderId: null,
-        receiverId: tx.senderId,
-        amount: phptAmount.toFixed(2),
-        type: "qrph_credit",
-        status: "completed",
-        category: "QRPH Cash-In",
-        note: `PHPT direct credit (local) from tx ${txId}`,
-        walletType: "phpt"
-      });
-      
-      // Create audit log for direct credit
-      await storage.createAdminAuditLog({
-        adminId: req.user.id,
-        action: "qrph_direct_credit",
-        targetType: "user",
-        targetId: tx.senderId,
-        details: JSON.stringify({ 
-          transactionId: txId, 
-          amount: phptAmount,
-          method: "local_direct",
-          newBalance: balanceResult.newPhptBalance
-        }),
-        ipAddress: req.ip || req.socket?.remoteAddress || null,
-        userAgent: req.headers["user-agent"] || null,
-        sessionId: req.headers.authorization?.replace("Bearer ", "") || null,
-        requestMethod: req.method,
-        requestPath: req.path,
-        riskLevel: "high"
-      });
-      
-      console.log(`[NexusPay Admin] Direct credit successful: ${phptAmount} PHPT to user ${tx.senderId}, new balance: ${balanceResult.newPhptBalance}`);
-      return res.json({ 
-        success: true, 
-        message: `Directly credited ${phptAmount} PHPT to ${user.username}`,
-        newBalance: balanceResult.newPhptBalance
-      });
-    } catch (error: any) {
-      console.error("[NexusPay Admin] Direct credit error:", error);
       res.status(500).json({ success: false, message: error.message });
     }
   });

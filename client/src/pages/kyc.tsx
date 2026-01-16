@@ -225,8 +225,11 @@ export default function KYC() {
                       <CheckCircle2 className="h-5 w-5" />
                       <span className="font-medium">Identity Verified</span>
                     </div>
-                    <p className="text-sm text-green-700">
+                    <p className="text-sm text-green-700 mb-2">
                       You have full access to all PayVerse features with higher transaction limits.
+                    </p>
+                    <p className="text-xs text-green-600">
+                      You can update your documents anytime. Note: Updates may require re-verification.
                     </p>
                   </div>
                 ) : status?.kycStatus === "pending" ? (
@@ -342,18 +345,20 @@ export default function KYC() {
                               <span className="font-medium">Reason: </span>{existingDoc.adminNote}
                             </div>
                           )}
-                          
-                          {(!existingDoc || existingDoc.status === "rejected") && (
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
+
+                          {/* Allow upload/update for all states except pending */}
+                          {(!existingDoc || existingDoc.status !== "pending") && (
+                            <Button
+                              size="sm"
+                              variant="outline"
                               className="mt-3"
                               onClick={() => handleFileSelect(docType.type)}
                               disabled={!!uploading}
                               data-testid={`button-upload-${docType.type}`}
                             >
                               <Upload className="h-4 w-4 mr-1" />
-                              {existingDoc?.status === "rejected" ? "Resubmit" : "Upload"}
+                              {existingDoc?.status === "rejected" ? "Resubmit" :
+                               existingDoc?.status === "approved" ? "Update" : "Upload"}
                             </Button>
                           )}
                         </div>

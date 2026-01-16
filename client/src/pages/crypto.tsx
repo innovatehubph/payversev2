@@ -760,83 +760,91 @@ export default function Crypto() {
 
       {/* Withdrawal Confirmation Dialog */}
       <Dialog open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowUpRight className="h-5 w-5 text-orange-500" />
-              Confirm Withdrawal
-            </DialogTitle>
-            <DialogDescription>
-              Your withdrawal is ready. Click the button below to claim your PHPT in Telegram.
-            </DialogDescription>
-          </DialogHeader>
-          
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden">
           {withdrawInvoice && (
-            <div className="space-y-4 py-4">
-              {/* Invoice Info */}
-              <div className="p-4 rounded-lg bg-orange-50 border border-orange-200">
-                <div className="text-center mb-3">
-                  <p className="text-sm text-orange-700 mb-1">Withdrawal Amount</p>
-                  <p className="text-3xl font-bold text-orange-900">
-                    {withdrawInvoice.amount} PHPT
-                  </p>
-                  <p className="text-sm text-orange-600 mt-1">
-                    ≈ ₱{withdrawInvoice.amount.toLocaleString()}
+            <>
+              {/* Header with Gradient */}
+              <div className="bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-500 p-6 text-white text-center">
+                <div className="h-16 w-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-3 ring-4 ring-white/30">
+                  <ArrowUpRight className="h-8 w-8 text-white" />
+                </div>
+                <h3 className="text-xl font-bold mb-1">Withdrawal Ready</h3>
+                <p className="text-white/80 text-sm">Claim your PHPT in Telegram</p>
+              </div>
+
+              <div className="p-6 space-y-5">
+                {/* Amount Display */}
+                <div className="text-center p-4 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200">
+                  <p className="text-xs text-orange-600 uppercase tracking-wide mb-1">Withdrawal Amount</p>
+                  <p className="text-4xl font-bold text-orange-600">{withdrawInvoice.amount} PHPT</p>
+                  <p className="text-sm text-orange-500 mt-1">
+                    ≈ ₱{withdrawInvoice.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </p>
                 </div>
-                
-                <div className="pt-3 border-t border-orange-200 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-orange-700">Invoice ID</span>
-                    <span className="font-mono text-xs text-orange-800">
-                      {withdrawInvoice.invoiceCode?.substring(0, 12) || withdrawInvoice.invoiceId.substring(0, 12)}...
+
+                {/* Details */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                    <span className="text-sm text-muted-foreground">Destination</span>
+                    <div className="flex items-center gap-2">
+                      <img src={telegramLogo} alt="" className="w-5 h-5 rounded-full" />
+                      <span className="font-medium text-sm">Telegram @opgmbot</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                    <span className="text-sm text-muted-foreground">Invoice ID</span>
+                    <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
+                      {(withdrawInvoice.invoiceCode || withdrawInvoice.invoiceId).substring(0, 16)}...
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-orange-700">Destination</span>
-                    <span className="text-orange-800">Telegram @opgmbot</span>
-                  </div>
-                  <div className="text-xs mt-2 p-2 bg-gray-100 rounded break-all">
-                    <span className="text-gray-500 block mb-1">Debug Link:</span>
-                    <code className="text-gray-700">{withdrawInvoice.telegramLink}</code>
+                </div>
+
+                {/* Warning */}
+                <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Important</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Click the button below to open Telegram and claim your PHPT.
+                    </p>
                   </div>
                 </div>
-              </div>
 
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-3">
-                <a
-                  href={withdrawInvoice.telegramLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleWithdrawConfirm}
-                  className="inline-flex items-center justify-center gap-2 w-full h-12 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-base"
-                  data-testid="button-confirm-telegram"
-                >
-                  <img src={telegramLogo} alt="" className="w-6 h-6 rounded-full" />
-                  Claim in Telegram
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-                
-                <Button
-                  variant="outline"
-                  onClick={handleWithdrawCancel}
-                  disabled={cancellingWithdraw}
-                  className="w-full h-11"
-                  data-testid="button-cancel-withdraw"
-                >
-                  {cancellingWithdraw ? (
-                    <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Cancelling...</>
-                  ) : (
-                    <><X className="mr-2 h-4 w-4" />Cancel Withdrawal</>
-                  )}
-                </Button>
-              </div>
+                {/* Action Buttons */}
+                <div className="flex flex-col gap-3">
+                  <a
+                    href={withdrawInvoice.telegramLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleWithdrawConfirm}
+                    className="inline-flex items-center justify-center gap-2 w-full h-12 px-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-lg hover:from-blue-700 hover:to-blue-600 transition-all font-medium text-base shadow-lg shadow-blue-500/25"
+                    data-testid="button-confirm-telegram"
+                  >
+                    <img src={telegramLogo} alt="" className="w-6 h-6 rounded-full" />
+                    Claim in Telegram
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
 
-              <p className="text-xs text-center text-muted-foreground">
-                Clicking cancel will mark this withdrawal as failed
-              </p>
-            </div>
+                  <Button
+                    variant="outline"
+                    onClick={handleWithdrawCancel}
+                    disabled={cancellingWithdraw}
+                    className="w-full h-11"
+                    data-testid="button-cancel-withdraw"
+                  >
+                    {cancellingWithdraw ? (
+                      <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Cancelling...</>
+                    ) : (
+                      <><X className="mr-2 h-4 w-4" />Cancel Withdrawal</>
+                    )}
+                  </Button>
+                </div>
+
+                <p className="text-xs text-center text-muted-foreground">
+                  Cancelling will return funds to your PayVerse wallet
+                </p>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>

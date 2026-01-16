@@ -72,43 +72,56 @@ export default function History() {
               <div key={period}>
                 <h3 className="text-sm font-medium text-muted-foreground mb-3 sticky top-0 bg-background/95 backdrop-blur py-2 z-10">{period}</h3>
                 <div className="space-y-2">
-                  {periodTransactions.map((tx) => (
-                    <div key={tx.id} className="flex items-center justify-between p-4 rounded-xl bg-card border border-border/50 hover:border-primary/20 transition-all group">
-                      <div className="flex items-center gap-4">
-                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                          tx.type === 'received' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                        }`}>
-                          {tx.type === 'received' ? <ArrowDownLeft className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}
-                        </div>
-                        <div>
-                          <p className="font-medium text-foreground">{tx.counterparty?.fullName || tx.category || "Unknown"}</p>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>{formatDistanceToNow(new Date(tx.createdAt), { addSuffix: true })}</span>
-                            <span>•</span>
-                            <span>{tx.category || (
-                              tx.type === 'deposit' ? 'Top-up' :
-                              tx.type === 'crypto_topup' ? 'Telegram Top-up' :
-                              tx.type === 'crypto_cashout' ? 'Cash Out' :
-                              tx.type === 'crypto_send' ? 'Send' :
-                              tx.type === 'received' ? 'Received' :
-                              tx.type === 'sent' ? 'Sent' :
-                              'Transfer'
-                            )}</span>
+                  {periodTransactions.map((tx) => {
+                    // Use direction from backend (primary) or fallback to type check
+                    const isIncoming = tx.direction === 'incoming' || tx.type === 'received';
+
+                    // Get display name: prefer description, then counterparty name
+                    const displayName = tx.description ||
+                      (tx.counterparty?.fullName ? (isIncoming ? `From ${tx.counterparty.fullName}` : `To ${tx.counterparty.fullName}`) : null) ||
+                      tx.displayCategory ||
+                      "Transaction";
+
+                    return (
+                      <div key={tx.id} className="flex items-center justify-between p-4 rounded-xl bg-card border border-border/50 hover:border-primary/20 transition-all group">
+                        <div className="flex items-center gap-4">
+                          <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                            isIncoming ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                          }`}>
+                            {isIncoming ? <ArrowDownLeft className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{displayName}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>{formatDistanceToNow(new Date(tx.createdAt), { addSuffix: true })}</span>
+                              <span>•</span>
+                              <span>{tx.displayCategory || tx.category || "Transaction"}</span>
+                              {tx.counterparty?.username && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-primary">@{tx.counterparty.username}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${
+                            isIncoming ? 'text-green-600 dark:text-green-400' : 'text-foreground'
+                          }`}>
+                            {isIncoming ? '+' : '-'}₱{parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </p>
+                          <p className={`text-xs font-medium capitalize flex justify-end items-center gap-1 ${
+                            tx.status === 'completed' ? 'text-green-600 dark:text-green-400' :
+                            tx.status === 'pending' ? 'text-amber-500' :
+                            tx.status === 'failed' || tx.status === 'refunded' ? 'text-red-500' : 'text-muted-foreground'
+                          }`}>
+                            {tx.status}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className={`font-bold ${
-                          tx.type === 'received' ? 'text-green-600' : 'text-foreground'
-                        }`}>
-                          {tx.type === 'received' ? '+' : ''}₱{parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </p>
-                        <p className="text-xs text-green-600 font-medium capitalize flex justify-end items-center gap-1">
-                          {tx.status}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

@@ -3,7 +3,9 @@ import rateLimit from "express-rate-limit";
 import { storage } from "./storage";
 import { authMiddleware } from "./auth";
 import { balanceAdjustmentInputSchema, USER_ROLES, type UserRole } from "@shared/schema";
-import { transferFromAdminWallet, getUserPhptBalance } from "./paygram";
+import { transferFromAdminWallet, getUserPhptBalance, registerPaygramUser } from "./paygram";
+import { sanitizeUser, sanitizeUsers, generateRequestId, getClientIp, isAdmin as checkIsAdmin } from "./utils";
+import { getSystemSetting } from "./settings";
 
 const PAYGRAM_API_URL = "https://api.pay-gram.org";
 
@@ -27,9 +29,7 @@ export const sensitiveActionRateLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
 });
 
-function generateRequestId(): number {
-  return -Math.floor(Math.random() * 9000000000) - 1000000000;
-}
+// generateRequestId is now imported from ./utils
 
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   super_admin: 100,
@@ -109,8 +109,9 @@ export async function superAdminMiddleware(req: Request, res: Response, next: Ne
   next();
 }
 
-function getAdminPaygramToken(): string | null {
-  return process.env.PAYGRAM_API_TOKEN || null;
+async function getAdminPaygramToken(): Promise<string | null> {
+  const token = await getSystemSetting("PAYGRAM_API_TOKEN", "");
+  return token || null;
 }
 
 export function registerAdminRoutes(app: Express) {
@@ -129,10 +130,7 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/users", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
     try {
       const users = await storage.getAllUsers();
-      res.json(users.map((u: any) => {
-        const { password, ...userWithoutPassword } = u;
-        return userWithoutPassword;
-      }));
+      res.json(sanitizeUsers(users));
     } catch (error: any) {
       console.error("Admin users error:", error);
       res.status(500).json({ message: "Failed to fetch users" });
@@ -217,10 +215,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const query = (req.query.q as string) || "";
       const users = await storage.searchUsersAdmin(query);
-      res.json(users.map((u: any) => {
-        const { password, ...userWithoutPassword } = u;
-        return userWithoutPassword;
-      }));
+      res.json(sanitizeUsers(users));
     } catch (error: any) {
       console.error("Admin search users error:", error);
       res.status(500).json({ message: "Failed to search users" });
@@ -245,10 +240,7 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/kyc/pending", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
     try {
       const users = await storage.getPendingKycUsers();
-      res.json(users.map((u: any) => {
-        const { password, ...userWithoutPassword } = u;
-        return userWithoutPassword;
-      }));
+      res.json(sanitizeUsers(users));
     } catch (error: any) {
       console.error("Admin KYC pending error:", error);
       res.status(500).json({ message: "Failed to fetch pending KYC" });
@@ -449,6 +441,44 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Register a user on PayGram (useful for users who weren't registered during signup)
+  app.post("/api/admin/users/:id/register-paygram", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const userCliId = user.username || user.email;
+      if (!userCliId) {
+        return res.status(400).json({ success: false, message: "User has no username or email" });
+      }
+
+      console.log(`[Admin] Registering user ${userId} (${userCliId}) on PayGram`);
+
+      const result = await registerPaygramUser(userCliId);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: `User ${userCliId} registered on PayGram successfully`,
+          userCliId
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          message: result.error || "Failed to register on PayGram",
+          userCliId
+        });
+      }
+    } catch (error: any) {
+      console.error("Admin register PayGram error:", error);
+      res.status(500).json({ success: false, message: "Failed to register user on PayGram" });
+    }
+  });
+
   // Sync all users' PayGram balances (batch operation)
   app.post("/api/admin/users/sync-all-balances", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
     try {
@@ -507,7 +537,7 @@ export function registerAdminRoutes(app: Express) {
 
   // Get escrow account balance (admin@payverse.ph) - used for all PHPT operations
   app.get("/api/admin/crypto/balances", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-    const token = getAdminPaygramToken();
+    const token = await getAdminPaygramToken();
     if (!token) {
       return res.status(503).json({ 
         message: "PayGram admin not configured",
@@ -515,8 +545,8 @@ export function registerAdminRoutes(app: Express) {
       });
     }
     
-    // Use the escrow account ID (admin@payverse.ph) for balance check
-    const escrowAccountId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+    // Super admin's PayGram username is always "superadmin" (the escrow account)
+    const escrowAccountId = "superadmin";
     
     try {
       const response = await fetch(`${PAYGRAM_API_URL}/${token}/UserInfo`, {
@@ -557,7 +587,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   app.get("/api/admin/crypto/exchange-rates", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-    const token = getAdminPaygramToken();
+    const token = await getAdminPaygramToken();
     if (!token) {
       return res.status(503).json({ message: "PayGram admin not configured" });
     }
@@ -581,13 +611,13 @@ export function registerAdminRoutes(app: Express) {
 
   // Send PHPT from escrow account to a PayGram user
   app.post("/api/admin/crypto/send", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-    const token = getAdminPaygramToken();
+    const token = await getAdminPaygramToken();
     if (!token) {
       return res.status(503).json({ message: "PayGram admin not configured" });
     }
     
-    // Use the escrow account ID (admin@payverse.ph) as sender
-    const escrowAccountId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+    // Super admin's PayGram username is always "superadmin" (the escrow account)
+    const escrowAccountId = "superadmin";
     
     try {
       const { telegramId, amount, currency } = req.body;
@@ -615,7 +645,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   app.post("/api/admin/crypto/invoice", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-    const token = getAdminPaygramToken();
+    const token = await getAdminPaygramToken();
     if (!token) {
       return res.status(503).json({ message: "PayGram admin not configured" });
     }

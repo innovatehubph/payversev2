@@ -474,62 +474,121 @@ export default function ManualDeposit() {
       </div>
 
       <Dialog open={showMethodDialog} onOpenChange={setShowMethodDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Payment Details</DialogTitle>
-            <DialogDescription>Send your payment to this account</DialogDescription>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden">
           {selectedMethod && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-muted space-y-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Payment Method</Label>
-                  <p className="font-medium">{selectedMethod.label}</p>
+            <>
+              {/* Header with Gradient */}
+              <div className="bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 p-6 text-white text-center">
+                <div className="h-16 w-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-3 ring-4 ring-white/30">
+                  <ProviderIcon className="h-8 w-8 text-white" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Account Name</Label>
-                    <p className="font-medium">{selectedMethod.accountName}</p>
+                <h3 className="text-xl font-bold mb-1">Payment Details</h3>
+                <p className="text-white/80 text-sm">Send your payment to this account</p>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {/* Payment Method Badge */}
+                <div className="flex items-center justify-center">
+                  <Badge variant="secondary" className="text-sm px-4 py-1">
+                    {selectedMethod.label}
+                  </Badge>
+                </div>
+
+                {/* Account Details */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Account Name</p>
+                      <p className="font-medium">{selectedMethod.accountName}</p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => copyToClipboard(selectedMethod.accountName, "Account name")}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(selectedMethod.accountName, "Account name")}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Account Number</Label>
-                    <p className="font-mono font-bold text-lg">{selectedMethod.accountNumber}</p>
+
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 border border-blue-200 dark:border-blue-800">
+                    <div>
+                      <p className="text-xs text-blue-600 dark:text-blue-400 uppercase tracking-wide">Account Number</p>
+                      <p className="font-mono font-bold text-2xl text-blue-700 dark:text-blue-300">{selectedMethod.accountNumber}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="border-blue-300 hover:bg-blue-100"
+                      onClick={() => copyToClipboard(selectedMethod.accountNumber, "Account number")}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(selectedMethod.accountNumber, "Account number")}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
                 </div>
+
                 {selectedMethod.instructions && (
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Instructions</Label>
-                    <p className="text-sm">{selectedMethod.instructions}</p>
+                  <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+                    <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Instructions</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400">{selectedMethod.instructions}</p>
+                    </div>
                   </div>
                 )}
+
+                <Button
+                  onClick={() => setShowMethodDialog(false)}
+                  className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                >
+                  <CheckCircle className="mr-2 h-5 w-5" />
+                  Got it, I'll send my payment
+                </Button>
               </div>
-              <Button onClick={() => setShowMethodDialog(false)} className="w-full">
-                Got it, I'll send my payment
-              </Button>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
 
       <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
-        <DialogContent>
-          <div className="text-center py-4">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+          {/* Header with Gradient */}
+          <div className="bg-gradient-to-br from-green-500 via-emerald-500 to-teal-500 p-8 text-white text-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 rounded-full bg-white/10 blur-xl" />
+            <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+
+            <div className="relative z-10">
+              <div className="h-20 w-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-4 ring-4 ring-white/30">
+                <CheckCircle className="h-10 w-10 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold mb-1">Request Submitted!</h3>
+              <p className="text-white/80">Your deposit is being reviewed</p>
             </div>
-            <DialogTitle className="text-xl mb-2">Request Submitted!</DialogTitle>
-            <DialogDescription className="mb-6">
-              Your deposit request has been submitted for review. You'll receive your PHPT once approved.
-            </DialogDescription>
-            <Button onClick={() => setShowSuccessDialog(false)} className="w-full">
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Pending Review
+                </Badge>
+              </div>
+              <p className="text-muted-foreground text-sm">
+                Our team will review your deposit request and payment proof.
+                Your PHPT will be credited once approved.
+              </p>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+              <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-300">What's next?</p>
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  You'll be notified once your deposit is approved. This usually takes a few minutes during business hours.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => setShowSuccessDialog(false)}
+              className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+            >
               Got it
             </Button>
           </div>

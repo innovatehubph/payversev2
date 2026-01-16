@@ -3,18 +3,19 @@ import { storage } from "./storage";
 import { ZodError, z } from "zod";
 import { authMiddleware } from "./auth";
 import { encrypt, decrypt } from "./encryption";
+import { generateRequestId } from "./utils";
+import { getSystemSetting } from "./settings";
 
 const PAYGRAM_API_URL = "https://api.pay-gram.org";
 const TGIN_API_URL = "https://tgin.pay-gram.org/PayGramUsers";
 const PAYGRAM_TELEGRAM_BOT = "opgmbot";
 
-function getSharedPaygramToken(): string | null {
-  return process.env.PAYGRAM_API_TOKEN || null;
+async function getSharedPaygramToken(): Promise<string | null> {
+  const token = await getSystemSetting("PAYGRAM_API_TOKEN", "");
+  return token || null;
 }
 
-function generateRequestId(): number {
-  return -Math.floor(Math.random() * 9000000000) - 1000000000;
-}
+// generateRequestId is now imported from ./utils
 
 function formatInvoiceAsVoucher(invoiceCode: string): string {
   if (!invoiceCode) return '';
@@ -72,7 +73,7 @@ interface PaygramTransferResult {
 }
 
 async function executePaygramTransfer(params: PaygramTransferParams): Promise<PaygramTransferResult> {
-  const sharedToken = getSharedPaygramToken();
+  const sharedToken = await getSharedPaygramToken();
   if (!sharedToken) {
     return { success: false, message: "PayGram not configured" };
   }
@@ -134,7 +135,7 @@ interface PaygramUserInfoResult {
 }
 
 async function getPaygramUserInfo(userCliId: string): Promise<PaygramUserInfoResult> {
-  const sharedToken = getSharedPaygramToken();
+  const sharedToken = await getSharedPaygramToken();
   if (!sharedToken) {
     return { success: false, message: "PayGram not configured" };
   }
@@ -291,7 +292,7 @@ async function executePaygramPayInvoice(
   userCliId: string,
   invoiceCode: string
 ): Promise<TginPayResult> {
-  const sharedToken = getSharedPaygramToken();
+  const sharedToken = await getSharedPaygramToken();
   if (!sharedToken) {
     return { success: false, message: "PayGram not configured" };
   }
@@ -339,7 +340,7 @@ async function executePaygramPayInvoice(
 }
 
 export async function registerPaygramUser(username: string): Promise<{ success: boolean; error?: string }> {
-  const sharedToken = getSharedPaygramToken();
+  const sharedToken = await getSharedPaygramToken();
   if (!sharedToken) {
     console.log("PayGram not configured, skipping SetUserInfo");
     return { success: false, error: "PayGram not configured" };
@@ -375,7 +376,7 @@ export async function registerPaygramUser(username: string): Promise<{ success: 
 
 export function registerPaygramRoutes(app: Express) {
   app.get("/api/crypto/status", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.json({ 
         connected: false,
@@ -405,7 +406,7 @@ export function registerPaygramRoutes(app: Express) {
 
   app.post("/api/crypto/connect", authMiddleware, async (req: Request, res: Response) => {
     try {
-      const sharedToken = getSharedPaygramToken();
+      const sharedToken = await getSharedPaygramToken();
       if (!sharedToken) {
         return res.status(503).json({ 
           message: "PayGram integration not configured",
@@ -502,7 +503,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.get("/api/crypto/exchange-rates", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -525,7 +526,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.post("/api/crypto/invoice", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -603,7 +604,7 @@ export function registerPaygramRoutes(app: Express) {
 
   // Create invoice via user's Telegram token (Tgin API) - for Telegram → PayVerse top-up
   app.post("/api/crypto/telegram-invoice", authMiddleware, async (req: Request, res: Response) => {
-    if (!getSharedPaygramToken()) {
+    if (!(await getSharedPaygramToken())) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
     
@@ -654,7 +655,7 @@ export function registerPaygramRoutes(app: Express) {
 
   // Redeem a Telegram invoice via PayGram API
   app.post("/api/crypto/redeem-invoice", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -815,7 +816,7 @@ export function registerPaygramRoutes(app: Express) {
   // 3. Redeem invoice via PayGramPay RedeemInvoice (credit PayVerse account)
   // This bridges: Telegram wallet -> PayVerse PayGram account -> PayVerse wallet
   app.post("/api/crypto/direct-topup", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1100,7 +1101,7 @@ export function registerPaygramRoutes(app: Express) {
 
   // Seamless auto-topup: Pay merchant invoice using user's Telegram token, then auto-redeem to PayVerse
   app.post("/api/crypto/auto-topup", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1234,7 +1235,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.get("/api/crypto/invoice/:invoiceCode", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1263,7 +1264,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.get("/api/crypto/circulating", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1286,7 +1287,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.post("/api/crypto/swap", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1324,7 +1325,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.post("/api/crypto/transfer", authMiddleware, async (req: Request, res: Response) => {
-    if (!getSharedPaygramToken()) {
+    if (!(await getSharedPaygramToken())) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
     
@@ -1352,65 +1353,88 @@ export function registerPaygramRoutes(app: Express) {
 
   // Send PHPT from PayVerse wallet to a PayGram user
   // Balance is managed by PayGram - just calls TransferCredit and records transaction
+  // If recipient is a PayVerse user, links transaction properly for both parties
   app.post("/api/crypto/send-paygram", authMiddleware, async (req: Request, res: Response) => {
-    if (!getSharedPaygramToken()) {
+    if (!(await getSharedPaygramToken())) {
       return res.status(503).json({ success: false, message: "PayGram not configured" });
     }
-    
+
     const connection = await storage.getPaygramConnection(req.user!.id);
     if (!connection) {
       return res.status(409).json({ success: false, message: "Wallet not connected" });
     }
-    
+
     const { recipientId, amount, note } = req.body;
-    
+
     if (!recipientId || typeof recipientId !== 'string' || recipientId.trim().length === 0) {
       return res.status(400).json({ success: false, message: "Recipient is required" });
     }
-    
+
     const sendAmount = parseFloat(amount);
     if (isNaN(sendAmount) || sendAmount < 1) {
       return res.status(400).json({ success: false, message: "Minimum send amount is 1 PHPT" });
     }
-    
+
     const userCliId = getUserCliId(req.user!);
     console.log(`PayGram send: ${userCliId} sending ${sendAmount} PHPT to ${recipientId}`);
-    
+
+    // Check if recipient is a PayVerse user (by username - case insensitive)
+    const recipientUser = await storage.getUserByUsername(recipientId.toLowerCase());
+    const isInternalTransfer = !!recipientUser;
+
     const result = await executePaygramTransfer({
       fromUserCliId: userCliId,
       toUserCliId: recipientId,
       amount: sendAmount,
       clientUnique: `send-paygram-${req.user!.id}-${Date.now()}`
     });
-    
+
     if (!result.success) {
-      return res.status(400).json({ 
-        success: false, 
+      return res.status(400).json({
+        success: false,
         message: result.message || "Transfer failed - insufficient balance or invalid recipient"
       });
     }
-    
-    // Record transaction for history (balance managed by PayGram)
+
+    // Record transaction for history
+    // If recipient is a PayVerse user, use "transfer" type so it shows in both histories
     await storage.createTransaction({
       senderId: req.user!.id,
-      receiverId: null,
+      receiverId: isInternalTransfer ? recipientUser!.id : null,
       amount: sendAmount.toFixed(2),
-      type: "crypto_send",
+      type: isInternalTransfer ? "transfer" : "crypto_send",
       status: "completed",
-      category: "Crypto Send",
-      note: note || `Sent to PayGram: ${recipientId}`,
+      category: isInternalTransfer ? "Transfer" : "Crypto Send",
+      note: note || (isInternalTransfer ? `Sent to ${recipientUser!.fullName}` : `Sent to PayGram: ${recipientId}`),
       walletType: "phpt"
     });
-    
-    res.json({ 
-      success: true, 
-      message: `Successfully sent ${sendAmount} PHPT to ${recipientId}`,
-      transactionId: result.transactionId
+
+    // Sync balances from PayGram for both sender and receiver (if internal)
+    const senderBalanceResult = await getUserPhptBalance(userCliId);
+    if (senderBalanceResult.success) {
+      await storage.updateUser(req.user!.id, { phptBalance: senderBalanceResult.balance.toFixed(2) });
+      console.log(`[PayGram Send] Synced sender ${req.user!.username} balance: ${senderBalanceResult.balance}`);
+    }
+
+    if (isInternalTransfer && recipientUser) {
+      const receiverCliId = getUserCliId(recipientUser);
+      const receiverBalanceResult = await getUserPhptBalance(receiverCliId);
+      if (receiverBalanceResult.success) {
+        await storage.updateUser(recipientUser.id, { phptBalance: receiverBalanceResult.balance.toFixed(2) });
+        console.log(`[PayGram Send] Synced receiver ${recipientUser.username} balance: ${receiverBalanceResult.balance}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully sent ${sendAmount} PHPT to ${isInternalTransfer ? recipientUser!.fullName : recipientId}`,
+      transactionId: result.transactionId,
+      isInternalTransfer
     });
   });
 
   app.post("/api/crypto/withdraw", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1450,7 +1474,7 @@ export function registerPaygramRoutes(app: Express) {
   // Flow: TGIN IssueInvoice (for Telegram to receive) → PayGramPay PayInvoice (pays from PayVerse)
   // This mirrors the top-up flow in reverse for seamless bidirectional transfers
   app.post("/api/crypto/cashout", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1685,7 +1709,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.get("/api/crypto/statement", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1725,7 +1749,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.post("/api/crypto/set-callback", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1792,24 +1816,22 @@ export function registerPaygramRoutes(app: Express) {
           }
           
           if (invoice && invoice.status === 'pending') {
-            // Balance is managed by PayGram - just update invoice status and record transaction
             const creditAmount = parseFloat(String(amount || invoice.amount));
-            
+
             // Update invoice status to paid
             await storage.updateCryptoInvoiceStatus(invoice.invoiceId, 'paid', new Date());
-            
-            // Record transaction for history (balance managed by PayGram)
-            await storage.createTransaction({
-              receiverId: invoice.userId,
-              amount: String(creditAmount),
-              type: 'crypto_topup',
-              status: 'completed',
-              category: 'deposit',
+
+            // Credit local balance and record transaction using balanceService
+            const { balanceService } = await import("./balance-service");
+            await balanceService.creditFromPaygram({
+              userId: invoice.userId,
+              amount: creditAmount,
+              type: "crypto_topup",
               note: `PHPT top-up via PayGram invoice ${invoice.invoiceId}`,
-              walletType: "phpt"
+              paygramTxId: invoice.invoiceId,
             });
-            
-            console.log(`Invoice ${invoiceIdentifier} paid: ${creditAmount} PHPT for user ${invoice.userId}`);
+
+            console.log(`Invoice ${invoiceIdentifier} paid: ${creditAmount} PHPT credited for user ${invoice.userId}`);
           } else if (invoice?.status !== 'pending') {
             console.log(`Invoice ${invoiceIdentifier} already processed (status: ${invoice?.status})`);
           } else {
@@ -1848,7 +1870,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.post("/api/crypto/red-envelope/create", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1885,7 +1907,7 @@ export function registerPaygramRoutes(app: Express) {
   });
 
   app.post("/api/crypto/red-envelope/redeem", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -1936,7 +1958,7 @@ export function registerPaygramRoutes(app: Express) {
 
   // Check invoice status against PayGram and update local record
   app.post("/api/crypto/invoices/:invoiceId/check-status", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -2004,7 +2026,7 @@ export function registerPaygramRoutes(app: Express) {
 
   // Confirm invoice is paid - just updates tracking status (balance managed by PayGram)
   app.post("/api/crypto/invoices/:invoiceId/confirm", authMiddleware, async (req: Request, res: Response) => {
-    const sharedToken = getSharedPaygramToken();
+    const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
@@ -2050,27 +2072,25 @@ export function registerPaygramRoutes(app: Express) {
         });
       }
       
-      // Update invoice status to paid (balance already managed by PayGram)
+      // Update invoice status to paid
       await storage.updateCryptoInvoiceStatus(invoiceId, "paid", new Date());
-      
-      // Record transaction for history
+
+      // Credit local balance and record transaction using balanceService
       const creditAmount = parseFloat(invoice.amount);
-      await storage.createTransaction({
-        senderId: req.user!.id,
-        receiverId: req.user!.id,
-        amount: creditAmount.toFixed(2),
+      const { balanceService } = await import("./balance-service");
+      await balanceService.creditFromPaygram({
+        userId: req.user!.id,
+        amount: creditAmount,
         type: "crypto_topup",
-        status: "completed",
-        category: "Invoice Payment",
         note: `Invoice ${invoice.invoiceCode || invoiceId} confirmed`,
-        walletType: "phpt"
+        paygramTxId: invoice.invoiceId,
       });
-      
-      console.log(`Invoice ${invoiceId} confirmed paid for user ${req.user!.id}`);
-      
+
+      console.log(`Invoice ${invoiceId} confirmed paid for user ${req.user!.id}: ${creditAmount} PHPT`);
+
       res.json({
         success: true,
-        message: `Invoice confirmed! Your balance has been updated.`,
+        message: `Invoice confirmed! ${creditAmount} PHPT credited to your wallet.`,
         amount: creditAmount
       });
     } catch (error: any) {
@@ -2087,7 +2107,8 @@ export async function transferFromAdminWallet(
   recipientUserCliId: string,
   amount: number
 ): Promise<{ success: boolean; message: string; transactionId?: string }> {
-  const adminUserCliId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+  // Super admin's PayGram username is always "superadmin" (the escrow account)
+  const adminUserCliId = "superadmin";
   
   if (amount < 1) {
     return { success: false, message: "Minimum transfer amount is 1 PHPT" };
@@ -2119,7 +2140,8 @@ export async function transferToAdminWallet(
   senderUserCliId: string,
   amount: number
 ): Promise<{ success: boolean; message: string; transactionId?: string }> {
-  const adminUserCliId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+  // Super admin's PayGram username is always "superadmin" (the escrow account)
+  const adminUserCliId = "superadmin";
   
   if (amount < 1) {
     return { success: false, message: "Minimum transfer amount is 1 PHPT" };

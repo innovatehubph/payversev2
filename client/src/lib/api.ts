@@ -12,6 +12,17 @@ function clearAuthToken() {
   localStorage.removeItem('auth_token');
 }
 
+function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const token = getAuthToken();
   const headers: Record<string, string> = {
@@ -44,7 +55,7 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
 
 export const api = {
   auth: {
-    register: (data: { email: string; password: string; fullName: string; username: string }) =>
+    register: (data: { email: string; password: string; fullName: string; username: string; pin: string }) =>
       fetchAPI('/auth/register', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -75,7 +86,7 @@ export const api = {
   },
 
   transfer: {
-    send: (data: { receiverId: number; amount: string; note?: string }) =>
+    send: (data: { receiverId: number; amount: string; note?: string; pin?: string }) =>
       fetchAPI('/transfer', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -87,4 +98,4 @@ export const api = {
   },
 };
 
-export { getAuthToken, setAuthToken, clearAuthToken };
+export { getAuthToken, setAuthToken, clearAuthToken, getAuthHeaders };

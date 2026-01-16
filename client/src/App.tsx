@@ -18,13 +18,25 @@ import Crypto from "@/pages/crypto";
 import QRPH from "@/pages/qrph";
 import ManualDeposit from "@/pages/manual-deposit";
 import Admin from "@/pages/admin";
+import AdminSettings from "@/pages/admin-settings";
+import AdminReports from "@/pages/admin-reports";
 import Security from "@/pages/security";
 import KYC from "@/pages/kyc";
 import ForgotPassword from "@/pages/forgot-password";
 import Services from "@/pages/services";
 import Casino from "@/pages/casino";
+import BankAccounts from "@/pages/bank-accounts";
+import ManualWithdrawal from "@/pages/manual-withdrawal";
 
-function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => React.JSX.Element; adminOnly?: boolean }) {
+function ProtectedRoute({
+  component: Component,
+  adminOnly = false,
+  blockSuperAdmin = false
+}: {
+  component: () => React.JSX.Element | null;
+  adminOnly?: boolean;
+  blockSuperAdmin?: boolean;
+}) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -43,14 +55,23 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
     return <Redirect to="/dashboard" />;
   }
 
+  // Block super admin from user-only pages (QRPH, Casino, Manual Deposit, etc.)
+  if (blockSuperAdmin && user.role === "super_admin") {
+    return <Redirect to="/dashboard" />;
+  }
+
   return <Component />;
 }
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Landing} />
-      <Route path="/auth" component={Auth} />
+      <Route path="/">
+        {() => <Landing />}
+      </Route>
+      <Route path="/auth">
+        {() => <Auth />}
+      </Route>
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/dashboard">
         {() => <ProtectedRoute component={Dashboard} />}
@@ -68,31 +89,43 @@ function Router() {
         {() => <ProtectedRoute component={Profile} />}
       </Route>
       <Route path="/crypto">
-        {() => <ProtectedRoute component={Crypto} />}
+        {() => <ProtectedRoute component={Crypto} blockSuperAdmin={true} />}
       </Route>
       <Route path="/qrph">
-        {() => <ProtectedRoute component={QRPH} />}
+        {() => <ProtectedRoute component={QRPH} blockSuperAdmin={true} />}
       </Route>
       <Route path="/manual-deposit">
-        {() => <ProtectedRoute component={ManualDeposit} />}
+        {() => <ProtectedRoute component={ManualDeposit} blockSuperAdmin={true} />}
       </Route>
       <Route path="/admin">
         {() => <ProtectedRoute component={Admin} adminOnly={true} />}
+      </Route>
+      <Route path="/admin/settings">
+        {() => <ProtectedRoute component={AdminSettings} adminOnly={true} />}
+      </Route>
+      <Route path="/admin/reports">
+        {() => <ProtectedRoute component={AdminReports} adminOnly={true} />}
       </Route>
       <Route path="/security">
         {() => <ProtectedRoute component={Security} />}
       </Route>
       <Route path="/kyc">
-        {() => <ProtectedRoute component={KYC} />}
+        {() => <ProtectedRoute component={KYC} blockSuperAdmin={true} />}
       </Route>
       <Route path="/services">
-        {() => <ProtectedRoute component={Services} />}
+        {() => <ProtectedRoute component={Services} blockSuperAdmin={true} />}
       </Route>
       <Route path="/casino-connect">
         {() => <Redirect to="/casino" />}
       </Route>
       <Route path="/casino">
-        {() => <ProtectedRoute component={Casino} />}
+        {() => <ProtectedRoute component={Casino} blockSuperAdmin={true} />}
+      </Route>
+      <Route path="/bank-accounts">
+        {() => <ProtectedRoute component={BankAccounts} blockSuperAdmin={true} />}
+      </Route>
+      <Route path="/manual-withdrawal">
+        {() => <ProtectedRoute component={ManualWithdrawal} blockSuperAdmin={true} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
@@ -105,21 +138,26 @@ function AppContent() {
     const token = localStorage.getItem("auth_token");
     return !token;
   });
+  const [preloaderDone, setPreloaderDone] = useState(false);
 
-  // Hide preloader if user is authenticated or auth check is complete
-  if (user || (!loading && !showPreloader)) {
+  // Show preloader first, then show app
+  if (showPreloader && !preloaderDone) {
     return (
       <>
+        <Preloader onComplete={() => {
+          setPreloaderDone(true);
+          setShowPreloader(false);
+        }} />
         <Toaster />
-        <Router />
       </>
     );
   }
 
+  // After preloader, always show Router (let routes handle auth)
   return (
     <>
-      <Preloader onComplete={() => setShowPreloader(false)} />
       <Toaster />
+      <Router />
     </>
   );
 }

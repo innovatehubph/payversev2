@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, ArrowDownToLine, ArrowUpFromLine, Send, Clock, LogOut, User, Shield, Settings, ChevronDown, LayoutGrid, Gamepad2 } from "lucide-react";
+import { Home, ArrowDownToLine, ArrowUpFromLine, Send, Clock, LogOut, User, Shield, Settings, ChevronDown, LayoutGrid, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import payverseLogo from "@assets/payverse_logo.png";
 import { useAuth } from "@/lib/auth-context";
@@ -28,21 +28,37 @@ export default function AppLayout({ children }: AppLayoutProps) {
     navigate("/");
   };
 
+  // Super admin is the escrow account - hide user transaction features
+  const isSuperAdmin = user?.role === "super_admin";
+
   const navItems = [
     { icon: Home, label: "Home", path: "/dashboard", testId: "nav-home", type: "link" as const },
-    { icon: ArrowDownToLine, label: "Top Up", action: openTopUp, testId: "nav-topup", type: "action" as const },
-    { icon: ArrowUpFromLine, label: "Cash Out", action: openCashOut, testId: "nav-cashout", type: "action" as const },
+    // Hide Top Up, Cash Out for super admin (escrow account), but allow Send (P2P)
+    ...(!isSuperAdmin ? [
+      { icon: ArrowDownToLine, label: "Top Up", action: openTopUp, testId: "nav-topup", type: "action" as const },
+      { icon: ArrowUpFromLine, label: "Cash Out", action: openCashOut, testId: "nav-cashout", type: "action" as const },
+    ] : []),
     { icon: Send, label: "Send", path: "/send", testId: "nav-send", type: "link" as const },
     { icon: Clock, label: "History", path: "/history", testId: "nav-history", type: "link" as const },
   ];
 
+  // Build sidebar items based on user role
   const sidebarItems = [
     ...navItems,
-    { icon: LayoutGrid, label: "Services", path: "/services", testId: "nav-services", type: "link" as const },
-    { icon: Gamepad2, label: "747 Connect", path: "/casino-connect", testId: "nav-casino", type: "link" as const },
+    // Hide Services for super admin (user-only features like QRPH, Casino)
+    ...(!isSuperAdmin ? [
+      { icon: LayoutGrid, label: "Services", path: "/services", testId: "nav-services", type: "link" as const },
+    ] : []),
     { icon: User, label: "Profile", path: "/profile", testId: "nav-profile", type: "link" as const },
-    { icon: Shield, label: "Security", path: "/security", testId: "nav-security", type: "link" as const },
-    ...(user?.isAdmin ? [{ icon: Settings, label: "Admin", path: "/admin", testId: "nav-admin", type: "link" as const }] : []),
+    { icon: Shield, label: "Security & PIN", path: "/security", testId: "nav-security", type: "link" as const },
+    // Hide KYC for super admin
+    ...(!isSuperAdmin ? [
+      { icon: UserCheck, label: "KYC Verification", path: "/kyc", testId: "nav-kyc", type: "link" as const },
+    ] : []),
+    // Admin-only items
+    ...(user?.isAdmin || user?.role === "super_admin" || user?.role === "admin"
+      ? [{ icon: Settings, label: "Admin Panel", path: "/admin", testId: "nav-admin", type: "link" as const }]
+      : []),
   ];
 
   return (
@@ -121,19 +137,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem asChild>
-              <Link href="/services" className="cursor-pointer">
-                <LayoutGrid className="mr-2 h-4 w-4" />
-                Services
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/casino-connect" className="cursor-pointer">
-                <Gamepad2 className="mr-2 h-4 w-4" />
-                747 Connect
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {/* Hide Services for super admin */}
+            {!isSuperAdmin && (
+              <>
+                <DropdownMenuItem asChild>
+                  <Link href="/services" className="cursor-pointer">
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Services
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem asChild>
               <Link href="/profile" className="cursor-pointer">
                 <User className="mr-2 h-4 w-4" />
@@ -143,14 +158,23 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <DropdownMenuItem asChild>
               <Link href="/security" className="cursor-pointer">
                 <Shield className="mr-2 h-4 w-4" />
-                Security
+                Security & PIN
               </Link>
             </DropdownMenuItem>
-            {user?.isAdmin && (
+            {/* Hide KYC for super admin */}
+            {!isSuperAdmin && (
+              <DropdownMenuItem asChild>
+                <Link href="/kyc" className="cursor-pointer">
+                  <UserCheck className="mr-2 h-4 w-4" />
+                  KYC Verification
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {(user?.isAdmin || user?.role === "super_admin" || user?.role === "admin") && (
               <DropdownMenuItem asChild>
                 <Link href="/admin" className="cursor-pointer">
                   <Settings className="mr-2 h-4 w-4" />
-                  Admin
+                  Admin Panel
                 </Link>
               </DropdownMenuItem>
             )}
@@ -206,21 +230,23 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </div>
               </Link>
 
-              {/* Top Up - Elevated action */}
-              <button
-                onClick={openTopUp}
-                data-testid="nav-topup"
-                className="flex flex-col items-center justify-center gap-1 transition-all duration-300 cursor-pointer group text-muted-foreground"
-              >
-                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/20 group-hover:from-emerald-500/30 group-hover:to-emerald-600/20 group-active:scale-95 transition-all duration-300 shadow-lg shadow-emerald-500/10">
-                  <ArrowDownToLine className="h-5 w-5 text-emerald-500" />
-                </div>
-                <span className="text-[10px] font-semibold tracking-wide text-emerald-600 dark:text-emerald-400">Top Up</span>
-              </button>
+              {/* Top Up - Elevated action (hidden for super admin) */}
+              {!isSuperAdmin && (
+                <button
+                  onClick={openTopUp}
+                  data-testid="nav-topup"
+                  className="flex flex-col items-center justify-center gap-1 transition-all duration-300 cursor-pointer group text-muted-foreground"
+                >
+                  <div className="p-2.5 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/20 group-hover:from-emerald-500/30 group-hover:to-emerald-600/20 group-active:scale-95 transition-all duration-300 shadow-lg shadow-emerald-500/10">
+                    <ArrowDownToLine className="h-5 w-5 text-emerald-500" />
+                  </div>
+                  <span className="text-[10px] font-semibold tracking-wide text-emerald-600 dark:text-emerald-400">Top Up</span>
+                </button>
+              )}
 
-              {/* Send - Central FAB style */}
+              {/* Send - Central FAB style (available for all users including super admin) */}
               <Link href="/send">
-                <div 
+                <div
                   data-testid="nav-send"
                   className="flex flex-col items-center justify-center gap-1 transition-all duration-300 cursor-pointer group -mt-6"
                 >
@@ -239,17 +265,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </div>
               </Link>
 
-              {/* Cash Out - Elevated action */}
-              <button
-                onClick={openCashOut}
-                data-testid="nav-cashout"
-                className="flex flex-col items-center justify-center gap-1 transition-all duration-300 cursor-pointer group text-muted-foreground"
-              >
-                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-600/10 border border-amber-500/20 group-hover:from-amber-500/30 group-hover:to-orange-600/20 group-active:scale-95 transition-all duration-300 shadow-lg shadow-amber-500/10">
-                  <ArrowUpFromLine className="h-5 w-5 text-amber-500" />
-                </div>
-                <span className="text-[10px] font-semibold tracking-wide text-amber-600 dark:text-amber-400">Cash Out</span>
-              </button>
+              {/* Cash Out - Elevated action (hidden for super admin) */}
+              {!isSuperAdmin && (
+                <button
+                  onClick={openCashOut}
+                  data-testid="nav-cashout"
+                  className="flex flex-col items-center justify-center gap-1 transition-all duration-300 cursor-pointer group text-muted-foreground"
+                >
+                  <div className="p-2.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-600/10 border border-amber-500/20 group-hover:from-amber-500/30 group-hover:to-orange-600/20 group-active:scale-95 transition-all duration-300 shadow-lg shadow-amber-500/10">
+                    <ArrowUpFromLine className="h-5 w-5 text-amber-500" />
+                  </div>
+                  <span className="text-[10px] font-semibold tracking-wide text-amber-600 dark:text-amber-400">Cash Out</span>
+                </button>
+              )}
 
               {/* History */}
               <Link href="/history">

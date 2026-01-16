@@ -1,10 +1,10 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { loginSchema, insertUserSchema, transferSchema, LARGE_TRANSFER_THRESHOLD } from "@shared/schema";
+import { loginSchema, registerUserSchema, transferSchema, LARGE_TRANSFER_THRESHOLD } from "@shared/schema";
 import bcrypt from "bcrypt";
 import { ZodError } from "zod";
-import { registerPaygramRoutes, registerPaygramUser } from "./paygram";
+import { registerPaygramRoutes, registerPaygramUser, getUserPhptBalance } from "./paygram";
 import { registerAdminRoutes } from "./admin";
 import { registerNexusPayRoutes } from "./nexuspay";
 import { registerManualDepositRoutes } from "./manual-deposits";
@@ -13,10 +13,14 @@ import { registerSecurityRoutes } from "./security";
 import { registerKycRoutes } from "./kyc";
 import { registerTutorialRoutes } from "./tutorials";
 import { registerCasinoRoutes } from "./casino";
+import { registerSettingsRoutes, getSystemSetting } from "./settings";
+import { registerReportRoutes } from "./reports";
+import { registerManualWithdrawalRoutes } from "./manual-withdrawals";
 import { seedAdminAccount } from "./seed";
 import { sessions, generateSessionToken, authMiddleware } from "./auth";
 import { initializeEmailTransporter, sendWelcomeEmail, sendTransferReceivedEmail, sendTransferSentEmail } from "./email";
 import { setupSwagger } from "./swagger";
+import { sanitizeUser } from "./utils";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -34,12 +38,15 @@ export async function registerRoutes(
   registerSecurityRoutes(app);
   registerKycRoutes(app);
   registerTutorialRoutes(app);
-  registerCasinoRoutes(app, authMiddleware);
-  
+  await registerCasinoRoutes(app, authMiddleware);
+  registerSettingsRoutes(app, authMiddleware);
+  registerReportRoutes(app);
+  registerManualWithdrawalRoutes(app);
+
   app.post("/api/auth/register", async (req, res) => {
     try {
-      const data = insertUserSchema.parse(req.body);
-      
+      const data = registerUserSchema.parse(req.body);
+
       const existingEmail = await storage.getUserByEmail(data.email);
       if (existingEmail) {
         return res.status(400).json({ message: "Email already exists" });
@@ -51,9 +58,14 @@ export async function registerRoutes(
       }
 
       const hashedPassword = await bcrypt.hash(data.password, 10);
+      const hashedPin = await bcrypt.hash(data.pin, 10);
+
+      // Remove pin from data before passing to createUser (it expects pinHash)
+      const { pin, ...userData } = data;
       const user = await storage.createUser({
-        ...data,
+        ...userData,
         password: hashedPassword,
+        pinHash: hashedPin,
       });
 
       // Register user with PayGram using their username as userCliId
@@ -69,8 +81,7 @@ export async function registerRoutes(
       const token = generateSessionToken();
       sessions.set(token, user.id);
 
-      const { password, ...userWithoutPassword } = user;
-      res.json({ user: userWithoutPassword, token });
+      res.json({ user: sanitizeUser(user), token });
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: error.errors[0].message });
@@ -96,8 +107,7 @@ export async function registerRoutes(
       const token = generateSessionToken();
       sessions.set(token, user.id);
 
-      const { password: _, ...userWithoutPassword } = user;
-      res.json({ user: userWithoutPassword, token });
+      res.json({ user: sanitizeUser(user), token });
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: error.errors[0].message });
@@ -116,61 +126,171 @@ export async function registerRoutes(
   });
 
   app.get("/api/auth/me", authMiddleware, async (req, res) => {
-    const { password, ...userWithoutPassword } = req.user!;
-    res.json(userWithoutPassword);
+    res.json(sanitizeUser(req.user!));
   });
 
   app.get("/api/transactions", authMiddleware, async (req, res) => {
     try {
       const transactions = await storage.getTransactionsByUserId(req.user!.id);
-      
+      const currentUserId = req.user!.id;
+
       const enrichedTransactions = await Promise.all(
         transactions.map(async (tx) => {
           let counterparty = null;
-          if (tx.senderId === req.user!.id && tx.receiverId) {
-            const receiver = await storage.getUser(tx.receiverId);
-            if (receiver) {
-              counterparty = {
-                id: receiver.id,
-                fullName: receiver.fullName,
-                username: receiver.username,
-              };
-            }
-          } else if (tx.receiverId === req.user!.id && tx.senderId) {
-            const sender = await storage.getUser(tx.senderId);
-            if (sender) {
-              counterparty = {
-                id: sender.id,
-                fullName: sender.fullName,
-                username: sender.username,
-              };
+
+          // Determine if this is outgoing from current user's perspective
+          // For transfers: outgoing if we're the sender
+          // For self-transactions (senderId === receiverId): check the type
+          const isSelfTransaction = tx.senderId === tx.receiverId && tx.senderId === currentUserId;
+          const isOutgoing = tx.senderId === currentUserId && tx.receiverId !== currentUserId;
+          const isIncoming = tx.receiverId === currentUserId && tx.senderId !== currentUserId;
+
+          // Get counterparty info for transfers
+          if (tx.type === "transfer" || tx.type === "crypto_send") {
+            if (isOutgoing && tx.receiverId) {
+              const receiver = await storage.getUser(tx.receiverId);
+              if (receiver) {
+                counterparty = {
+                  id: receiver.id,
+                  fullName: receiver.fullName,
+                  username: receiver.username,
+                };
+              }
+            } else if (isIncoming && tx.senderId) {
+              const sender = await storage.getUser(tx.senderId);
+              if (sender) {
+                counterparty = {
+                  id: sender.id,
+                  fullName: sender.fullName,
+                  username: sender.username,
+                };
+              }
             }
           }
 
-          // Preserve special transaction types like deposit, withdrawal
-          // Map QRPH cash-in types to display as deposits (incoming funds)
-          const preserveTypes = ["deposit", "withdrawal", "topup", "cashout"];
-          const depositTypes = ["qrph_cashin", "qrph_credit", "qrph_credit_pending"];
-          
-          let displayType: string;
-          if (preserveTypes.includes(tx.type)) {
-            displayType = tx.type;
-          } else if (depositTypes.includes(tx.type)) {
-            displayType = "deposit";
+          // Determine direction based on transaction type and user role
+          const outgoingTypes = ["withdrawal", "cashout", "crypto_cashout", "crypto_send", "qrph_payout", "qrph_payout_failed", "casino_deposit", "sync_debit"];
+          const incomingTypes = ["deposit", "topup", "qrph_cashin", "qrph_credit", "manual_deposit", "crypto_topup", "casino_withdraw", "sync_credit"];
+
+          let direction: "incoming" | "outgoing";
+          if (incomingTypes.includes(tx.type)) {
+            direction = "incoming";
+          } else if (outgoingTypes.includes(tx.type)) {
+            direction = "outgoing";
+          } else if (tx.type === "transfer") {
+            // For P2P transfers, direction depends on whether user is sender or receiver
+            direction = isOutgoing ? "outgoing" : "incoming";
           } else {
-            displayType = tx.senderId === req.user!.id ? "sent" : "received";
+            // Default: check if user is sender or receiver
+            direction = isOutgoing ? "outgoing" : "incoming";
           }
-          
+
+          // Build human-readable description with counterparty names
+          let description: string;
+
+          switch (tx.type) {
+            case "transfer":
+              if (isOutgoing && counterparty) {
+                description = `Sent to ${counterparty.fullName}`;
+              } else if (isIncoming && counterparty) {
+                description = `Received from ${counterparty.fullName}`;
+              } else if (isOutgoing) {
+                description = "Transfer sent";
+              } else {
+                description = "Transfer received";
+              }
+              break;
+            case "crypto_send":
+              if (counterparty) {
+                description = `Sent to ${counterparty.fullName}`;
+              } else {
+                // Extract recipient from note if available (for external PayGram sends)
+                const noteMatch = tx.note?.match(/Sent to PayGram: (.+)/);
+                description = noteMatch ? `Sent to @${noteMatch[1]}` : "Crypto transfer sent";
+              }
+              break;
+            case "topup":
+            case "deposit":
+              description = tx.category === "Telegram Top-up" ? "Telegram top-up" : "Wallet top-up";
+              break;
+            case "manual_deposit":
+              description = "Manual deposit";
+              break;
+            case "crypto_topup":
+              description = tx.category === "Invoice Payment" ? "Invoice payment received" : "Telegram top-up";
+              break;
+            case "qrph_cashin":
+              description = "QRPH cash-in initiated";
+              break;
+            case "qrph_credit":
+              description = "QRPH deposit credited";
+              break;
+            case "qrph_payout":
+              description = "QRPH cash-out";
+              break;
+            case "qrph_payout_failed":
+              description = "QRPH cash-out (refunded)";
+              break;
+            case "withdrawal":
+            case "cashout":
+              description = "Withdrawal";
+              break;
+            case "crypto_cashout":
+              description = "Crypto cash-out";
+              break;
+            case "casino_deposit":
+              description = "Casino chips purchase";
+              break;
+            case "casino_withdraw":
+              description = "Casino chips sold";
+              break;
+            case "sync_credit":
+              description = "Balance adjustment (credit)";
+              break;
+            case "sync_debit":
+              description = "Balance adjustment (debit)";
+              break;
+            default:
+              // Use note or category for unknown types
+              description = tx.note?.substring(0, 50) || tx.category || tx.type.replace(/_/g, ' ');
+          }
+
+          // Get category label for display
+          const categoryLabels: Record<string, string> = {
+            "transfer": "Transfer",
+            "crypto_send": "Transfer",
+            "topup": "Top-up",
+            "deposit": "Deposit",
+            "manual_deposit": "Deposit",
+            "crypto_topup": "Top-up",
+            "qrph_cashin": "QRPH",
+            "qrph_credit": "QRPH",
+            "qrph_payout": "QRPH",
+            "qrph_payout_failed": "QRPH",
+            "withdrawal": "Withdrawal",
+            "cashout": "Cash Out",
+            "crypto_cashout": "Cash Out",
+            "casino_deposit": "Casino",
+            "casino_withdraw": "Casino",
+            "sync_credit": "Adjustment",
+            "sync_debit": "Adjustment",
+          };
+
           return {
             ...tx,
             counterparty,
-            type: displayType,
+            direction,
+            description,
+            displayCategory: categoryLabels[tx.type] || tx.category || "Transaction",
+            originalType: tx.type,
+            type: direction === "incoming" ? "received" : "sent", // For backward compatibility with frontend
           };
         })
       );
 
       res.json(enrichedTransactions);
     } catch (error) {
+      console.error("Failed to fetch transactions:", error);
       res.status(500).json({ message: "Failed to fetch transactions" });
     }
   });
@@ -200,60 +320,69 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Minimum transfer is 1 PHPT" });
       }
 
-      // PIN verification for large transfers
+      // KYC verification only for large transfers (5000+)
       if (transferAmount >= LARGE_TRANSFER_THRESHOLD) {
-        if (!sender.pinHash) {
-          return res.status(400).json({ 
-            message: "PIN required for large transfers. Please set up your PIN first.",
-            requiresPin: true,
-            needsPinSetup: true
+        if (sender.kycStatus !== "verified") {
+          return res.status(403).json({
+            message: `KYC verification required for transfers of ${LARGE_TRANSFER_THRESHOLD.toLocaleString()} PHPT or more. Please complete your identity verification.`,
+            requiresKyc: true,
+            kycStatus: sender.kycStatus || "unverified",
           });
         }
-        
-        if (!pin) {
-          return res.status(400).json({ 
-            message: `PIN required for transfers of ${LARGE_TRANSFER_THRESHOLD.toLocaleString()} PHPT or more`,
-            requiresPin: true
-          });
-        }
-        
-        // Check lockout
-        if (sender.pinLockedUntil && new Date(sender.pinLockedUntil) > new Date()) {
-          const remainingMinutes = Math.ceil((new Date(sender.pinLockedUntil).getTime() - Date.now()) / 60000);
-          return res.status(423).json({ 
-            message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
-            lockedUntil: sender.pinLockedUntil
-          });
-        }
-        
-        // Verify PIN
-        const isValidPin = await bcrypt.compare(pin, sender.pinHash);
-        if (!isValidPin) {
-          const newAttempts = (sender.pinFailedAttempts || 0) + 1;
-          const maxAttempts = 5;
-          
-          if (newAttempts >= maxAttempts) {
-            const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
-            await storage.updateUserPinAttempts(sender.id, newAttempts, lockUntil);
-            return res.status(423).json({ 
-              message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
-              lockedUntil: lockUntil
-            });
-          }
-          
-          await storage.updateUserPinAttempts(sender.id, newAttempts, null);
-          return res.status(401).json({ 
-            message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
-            attemptsRemaining: maxAttempts - newAttempts
-          });
-        }
-        
-        // Reset failed attempts on success
-        await storage.updateUserPinAttempts(sender.id, 0, null);
       }
 
-      // Get PayGram API token
-      const sharedToken = process.env.PAYGRAM_API_TOKEN;
+      // PIN verification required for ALL transactions
+      if (!sender.pinHash) {
+        return res.status(400).json({
+          message: "PIN required for transfers. Please set up your PIN first.",
+          requiresPin: true,
+          needsPinSetup: true
+        });
+      }
+
+      if (!pin) {
+        return res.status(400).json({
+          message: "PIN required for all transfers",
+          requiresPin: true
+        });
+      }
+
+      // Check lockout
+      if (sender.pinLockedUntil && new Date(sender.pinLockedUntil) > new Date()) {
+        const remainingMinutes = Math.ceil((new Date(sender.pinLockedUntil).getTime() - Date.now()) / 60000);
+        return res.status(423).json({
+          message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
+          lockedUntil: sender.pinLockedUntil
+        });
+      }
+
+      // Verify PIN
+      const isValidPin = await bcrypt.compare(pin, sender.pinHash);
+      if (!isValidPin) {
+        const newAttempts = (sender.pinFailedAttempts || 0) + 1;
+        const maxAttempts = 5;
+
+        if (newAttempts >= maxAttempts) {
+          const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
+          await storage.updateUserPinAttempts(sender.id, newAttempts, lockUntil);
+          return res.status(423).json({
+            message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
+            lockedUntil: lockUntil
+          });
+        }
+
+        await storage.updateUserPinAttempts(sender.id, newAttempts, null);
+        return res.status(401).json({
+          message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
+          attemptsRemaining: maxAttempts - newAttempts
+        });
+      }
+
+      // Reset failed attempts on success
+      await storage.updateUserPinAttempts(sender.id, 0, null);
+
+      // Get PayGram API token from system settings or env
+      const sharedToken = await getSystemSetting("PAYGRAM_API_TOKEN", "");
       if (!sharedToken) {
         return res.status(503).json({ message: "Payment system not configured" });
       }
@@ -301,6 +430,25 @@ export async function registerRoutes(
         walletType: "phpt"
       });
 
+      // Sync real balances from PayGram to keep database in sync
+      // Fetch actual balances from PayGram (source of truth)
+      const [senderBalanceResult, receiverBalanceResult] = await Promise.all([
+        getUserPhptBalance(senderCliId),
+        getUserPhptBalance(receiverCliId)
+      ]);
+
+      // Update sender's balance from PayGram
+      if (senderBalanceResult.success) {
+        await storage.updateUser(sender.id, { phptBalance: senderBalanceResult.balance.toFixed(2) });
+        console.log(`[Transfer] Synced sender ${sender.username} balance from PayGram: ${senderBalanceResult.balance}`);
+      }
+
+      // Update receiver's balance from PayGram
+      if (receiverBalanceResult.success) {
+        await storage.updateUser(receiver.id, { phptBalance: receiverBalanceResult.balance.toFixed(2) });
+        console.log(`[Transfer] Synced receiver ${receiver.username} balance from PayGram: ${receiverBalanceResult.balance}`);
+      }
+
       // Send email notifications for transfer (async, don't block response)
       sendTransferSentEmail(sender.email, sender.fullName, receiver.fullName, amount, note || undefined).catch(err => {
         console.error("Failed to send transfer sent email:", err);
@@ -309,7 +457,7 @@ export async function registerRoutes(
         console.error("Failed to send transfer received email:", err);
       });
 
-      res.json({ 
+      res.json({
         message: "Transfer successful",
         transaction,
         paygramTransactionId: paygramData.transactionId

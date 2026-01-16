@@ -18,12 +18,16 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
-import { 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  RefreshCw, 
-  ExternalLink, 
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { Badge } from "@/components/ui/badge";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  RefreshCw,
+  ExternalLink,
   CheckCircle2,
   QrCode,
   Smartphone,
@@ -35,7 +39,8 @@ import {
   CheckCircle,
   XCircle,
   Home,
-  PartyPopper
+  PartyPopper,
+  Lock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -79,9 +84,16 @@ export default function QRPH() {
   const [cashoutName, setCashoutName] = useState("");
   const [cashoutProvider, setCashoutProvider] = useState("gcash");
   const [cashoutLoading, setCashoutLoading] = useState(false);
-  
+
+  // PIN entry state for cashout
+  const [cashoutPin, setCashoutPin] = useState("");
+  const [showCashoutPinDialog, setShowCashoutPinDialog] = useState(false);
+
   const [showSuccessPage, setShowSuccessPage] = useState(false);
   const [redirectCountdown, setRedirectCountdown] = useState(5);
+  const [successType, setSuccessType] = useState<"cashin" | "cashout">("cashin");
+  const [successAmount, setSuccessAmount] = useState(0);
+  const [successAccount, setSuccessAccount] = useState("");
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollCountRef = useRef(0);
@@ -162,6 +174,14 @@ export default function QRPH() {
           title: "Payment Successful!",
           description: `${formatPeso(amount)} has been added to your wallet`,
         });
+        // Close dialog and show success page
+        setTimeout(() => {
+          setPaymentDialog(false);
+          setSuccessType("cashin");
+          setSuccessAmount(amount);
+          setShowSuccessPage(true);
+          setRedirectCountdown(5);
+        }, 1500);
       } else if (apiStatus === "failed" || apiStatus === "cancelled" || apiStatus === "rejected") {
         setPaymentStatus("failed");
         setStatusMessage("Payment failed or cancelled");
@@ -284,6 +304,19 @@ export default function QRPH() {
       return;
     }
 
+    // Show PIN dialog instead of processing directly
+    setShowCashoutPinDialog(true);
+  };
+
+  // Execute the actual cashout after PIN verification
+  const handleConfirmCashout = async () => {
+    if (cashoutPin.length !== 6) {
+      toast({ title: "Invalid PIN", description: "Please enter your 6-digit PIN", variant: "destructive" });
+      return;
+    }
+
+    const amount = parseFloat(cashoutAmount);
+
     setCashoutLoading(true);
     try {
       const response = await fetch("/api/nexuspay/cashout", {
@@ -293,35 +326,60 @@ export default function QRPH() {
           amount,
           accountNumber: cashoutAccount.trim(),
           accountName: cashoutName.trim() || user?.fullName || "PayVerse User",
-          provider: cashoutProvider
+          provider: cashoutProvider,
+          pin: cashoutPin
         })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        toast({ 
-          title: "Payout Successful!", 
+        toast({
+          title: "Payout Successful!",
           description: `${formatPeso(data.amount)} sent to ${cashoutAccount} via ${data.gateway || cashoutProvider.toUpperCase()}`
         });
-        setCashoutAmount("");
-        setCashoutAccount("");
-        setCashoutName("");
+
+        // Show success page
+        setSuccessType("cashout");
+        setSuccessAmount(data.amount);
+        setSuccessAccount(cashoutAccount);
+        setShowSuccessPage(true);
+        setRedirectCountdown(5);
+
+        // Clear form
+        setTimeout(() => {
+          setCashoutAmount("");
+          setCashoutAccount("");
+          setCashoutName("");
+        }, 500);
       } else {
-        toast({ 
-          title: "Payout Failed", 
-          description: data.message || "Could not process payout", 
-          variant: "destructive" 
-        });
+        // Handle specific PIN-related errors
+        if (data.requiresPin && data.needsPinSetup) {
+          toast({ title: "PIN Required", description: "Please set up your PIN in Security settings first.", variant: "destructive" });
+        } else if (data.lockedUntil) {
+          toast({ title: "PIN Locked", description: data.message, variant: "destructive" });
+        } else if (data.attemptsRemaining !== undefined) {
+          toast({ title: "Invalid PIN", description: data.message, variant: "destructive" });
+          setCashoutPin(""); // Clear PIN for retry
+          return; // Don't close dialog on invalid PIN
+        } else {
+          toast({
+            title: "Payout Failed",
+            description: data.message || "Could not process payout",
+            variant: "destructive"
+          });
+        }
       }
     } catch (error: any) {
-      toast({ 
-        title: "Error", 
-        description: error.message || "Payout processing failed", 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description: error.message || "Payout processing failed",
+        variant: "destructive"
       });
     } finally {
       setCashoutLoading(false);
+      setShowCashoutPinDialog(false);
+      setCashoutPin("");
     }
   };
 
@@ -357,53 +415,72 @@ export default function QRPH() {
   };
 
   if (showSuccessPage) {
+    const isCashout = successType === "cashout";
     return (
       <AppLayout>
         <div className="max-w-md mx-auto py-12">
           <Card className="border-0 shadow-lg overflow-hidden">
-            <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-8 text-white text-center">
+            <div className={`p-8 text-white text-center ${isCashout ? "bg-gradient-to-r from-orange-500 to-amber-600" : "bg-gradient-to-r from-green-500 to-emerald-600"}`}>
               <div className="w-20 h-20 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
                 <PartyPopper className="h-10 w-10" />
               </div>
-              <h1 className="text-2xl font-bold mb-2">Payment Successful!</h1>
-              <p className="text-white/80">Your PHPT balance is being credited</p>
+              <h1 className="text-2xl font-bold mb-2">
+                {isCashout ? "Payout Successful!" : "Payment Successful!"}
+              </h1>
+              <p className="text-white/80">
+                {isCashout ? "Your funds have been sent" : "Your PHPT balance is being credited"}
+              </p>
             </div>
-            
+
             <CardContent className="p-6 space-y-6 text-center">
               <div className="space-y-2">
-                <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
-                <p className="text-lg font-medium">Thank you for your payment</p>
-                <p className="text-sm text-muted-foreground">
-                  Your PHPT balance will be updated shortly at a 1:1 rate (₱1 = 1 PHPT)
-                </p>
+                <CheckCircle className={`h-16 w-16 mx-auto ${isCashout ? "text-orange-500" : "text-green-500"}`} />
+                {isCashout ? (
+                  <>
+                    <p className="text-lg font-medium">{formatPeso(successAmount)} sent!</p>
+                    <p className="text-sm text-muted-foreground">
+                      Your funds have been sent to {successAccount}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg font-medium">Thank you for your payment</p>
+                    <p className="text-sm text-muted-foreground">
+                      Your PHPT balance will be updated shortly at a 1:1 rate (₱1 = 1 PHPT)
+                    </p>
+                  </>
+                )}
               </div>
-              
+
               <div className="bg-muted/50 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground">
                   Redirecting to dashboard in <span className="font-bold text-primary">{redirectCountdown}</span> seconds...
                 </p>
               </div>
-              
-              <Button 
+
+              <Button
                 onClick={() => navigate("/dashboard")}
-                className="w-full h-12 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
+                className={`w-full h-12 ${isCashout ? "bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700" : "bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"}`}
                 data-testid="button-go-dashboard"
               >
                 <Home className="mr-2 h-5 w-5" />
                 Go to Dashboard Now
               </Button>
-              
-              <Button 
+
+              <Button
                 variant="outline"
                 onClick={() => {
                   setShowSuccessPage(false);
                   setRedirectCountdown(5);
+                  setSuccessType("cashin");
+                  setSuccessAmount(0);
+                  setSuccessAccount("");
                   navigate("/qrph", { replace: true });
                 }}
                 className="w-full"
                 data-testid="button-new-payment"
               >
-                Make Another Payment
+                {isCashout ? "Make Another Payout" : "Make Another Payment"}
               </Button>
             </CardContent>
           </Card>
@@ -721,61 +798,172 @@ export default function QRPH() {
       </div>
 
       <Dialog open={paymentDialog} onOpenChange={handleDialogClose}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-center justify-center">
-              <QrCode className="h-5 w-5 text-green-500" />
-              Pay {paymentData ? formatPeso(paymentData.amount) : ""}
-            </DialogTitle>
-          </DialogHeader>
-          
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0">
           {paymentData && (
-            <div className="flex flex-col flex-1 min-h-0 space-y-3">
-              <div className="flex-1 min-h-0 rounded-lg border overflow-hidden bg-white">
-                <iframe
-                  src={paymentData.paymentUrl}
-                  className="w-full h-full min-h-[400px]"
-                  title="Payment Page"
-                  data-testid="iframe-payment"
-                />
+            <>
+              {/* Header with Gradient */}
+              <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-green-500 p-4 text-white flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                      <QrCode className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold">Scan to Pay</h3>
+                      <p className="text-sm text-white/80">{formatPeso(paymentData.amount)}</p>
+                    </div>
+                  </div>
+                  <StatusIcon />
+                </div>
+                <div className="mt-2 text-xs bg-white/20 rounded-full px-3 py-1 inline-flex items-center gap-1">
+                  {paymentStatus === "success" ? (
+                    <CheckCircle className="h-3 w-3" />
+                  ) : paymentStatus === "failed" || paymentStatus === "expired" ? (
+                    <XCircle className="h-3 w-3" />
+                  ) : (
+                    <Clock className="h-3 w-3" />
+                  )}
+                  {statusMessage}
+                </div>
               </div>
 
-              <div className="flex-shrink-0 space-y-2">
-                <Button
-                  onClick={openPaymentPage}
-                  className="w-full h-12 bg-gradient-to-r from-blue-600 to-green-500 hover:from-blue-700 hover:to-green-600"
-                  data-testid="button-open-payment"
-                >
-                  <ExternalLink className="mr-2 h-5 w-5" />
-                  Open in New Tab (for Mobile)
-                </Button>
-                
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={copyTransactionId}
-                    className="flex-1"
-                    data-testid="button-copy-txid"
-                  >
-                    <Copy className="mr-2 h-4 w-4" />
-                    Copy ID
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDialogClose(false)}
-                    className="flex-1"
-                    data-testid="button-close-payment"
-                  >
-                    Close
-                  </Button>
+              <div className="flex flex-col flex-1 min-h-0 p-4 space-y-3">
+                <div className="flex-1 min-h-0 rounded-lg border-2 border-dashed border-primary/30 overflow-hidden bg-white">
+                  <iframe
+                    src={paymentData.paymentUrl}
+                    className="w-full h-full min-h-[350px]"
+                    title="Payment Page"
+                    data-testid="iframe-payment"
+                  />
                 </div>
 
-                <p className="text-xs text-center text-muted-foreground">
-                  Transaction: {paymentData.transactionId}
+                <div className="flex-shrink-0 space-y-2">
+                  <Button
+                    onClick={openPaymentPage}
+                    className="w-full h-11 bg-gradient-to-r from-blue-600 to-green-500 hover:from-blue-700 hover:to-green-600"
+                    data-testid="button-open-payment"
+                  >
+                    <ExternalLink className="mr-2 h-5 w-5" />
+                    Open in New Tab (for Mobile)
+                  </Button>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={copyTransactionId}
+                      className="flex-1"
+                      data-testid="button-copy-txid"
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy ID
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDialogClose(false)}
+                      className="flex-1"
+                      data-testid="button-close-payment"
+                    >
+                      Close
+                    </Button>
+                  </div>
+
+                  <p className="text-xs text-center text-muted-foreground font-mono">
+                    {paymentData.transactionId}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* PIN Verification Dialog for Cashout */}
+      <Dialog open={showCashoutPinDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowCashoutPinDialog(false);
+          setCashoutPin("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-center pb-2">
+            <div className="mx-auto h-14 w-14 rounded-full bg-gradient-to-br from-orange-500/20 to-amber-500/20 flex items-center justify-center mb-3">
+              <ArrowUpRight className="h-7 w-7 text-orange-500" />
+            </div>
+            <DialogTitle className="text-xl">Confirm Payout</DialogTitle>
+            <DialogDescription>Enter your PIN to send funds</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Amount Display */}
+            <div className="text-center p-4 rounded-xl bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-500/20">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                Sending to {cashoutProvider.toUpperCase()}
+              </p>
+              <p className="text-3xl font-bold text-orange-600">
+                {formatPeso(parseFloat(cashoutAmount || "0"))}
+              </p>
+              <Badge variant="outline" className="mt-2">
+                {cashoutAccount}
+              </Badge>
+            </div>
+
+            {/* PIN Input */}
+            <div className="p-4 rounded-xl bg-secondary/30 border">
+              <div className="flex items-center gap-2 mb-3">
+                <Lock className="h-4 w-4 text-primary" />
+                <p className="text-sm font-medium">Enter your 6-digit PIN</p>
+              </div>
+              <div className="flex justify-center">
+                <InputOTP maxLength={6} value={cashoutPin} onChange={setCashoutPin}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} className="h-11 w-10" />
+                    <InputOTPSlot index={1} className="h-11 w-10" />
+                    <InputOTPSlot index={2} className="h-11 w-10" />
+                    <InputOTPSlot index={3} className="h-11 w-10" />
+                    <InputOTPSlot index={4} className="h-11 w-10" />
+                    <InputOTPSlot index={5} className="h-11 w-10" />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            </div>
+
+            {/* Warning */}
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Important</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  This will deduct PHPT from your wallet and send to {cashoutProvider.toUpperCase()}.
                 </p>
               </div>
             </div>
-          )}
+          </div>
+
+          <DialogFooter className="flex gap-3 sm:gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setShowCashoutPinDialog(false);
+                setCashoutPin("");
+              }}
+              disabled={cashoutLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600"
+              onClick={handleConfirmCashout}
+              disabled={cashoutLoading || cashoutPin.length !== 6}
+            >
+              {cashoutLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Banknote className="mr-2 h-4 w-4" />
+              )}
+              {cashoutLoading ? "Processing..." : "Confirm Payout"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AppLayout>

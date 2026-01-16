@@ -1,7 +1,9 @@
 import { Router, Request, Response } from "express";
+import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { CASINO_AGENTS, type CasinoAgent } from "@shared/schema";
 import { transferToAdminWallet, transferFromAdminWallet, getUserPhptBalance } from "./paygram";
+import { getSystemSetting, clearSettingsCache } from "./settings";
 
 const router = Router();
 
@@ -10,7 +12,7 @@ let adminUserId: number | null = null;
 
 async function getAdminUserId(): Promise<number | null> {
   if (adminUserId !== null) return adminUserId;
-  
+
   const adminEmail = process.env.SUPER_ADMIN_EMAIL || "admin@payverse.ph";
   const adminUser = await storage.getUserByEmail(adminEmail);
   if (adminUser) {
@@ -22,16 +24,42 @@ async function getAdminUserId(): Promise<number | null> {
 
 const CASINO_API_BASE = "https://bridge.747lc.com";
 
-// Agent tokens map - each agent has their own API token for transfers
-const AGENT_TOKENS: Record<CasinoAgent, string | undefined> = {
-  marcthepogi: process.env.CASINO_747_TOKEN_MARCTHEPOGI,
-  teammarc: process.env.CASINO_747_TOKEN_TEAMMARC,
-  bossmarc747: process.env.CASINO_747_TOKEN_BOSSMARC747,
-};
+// Token cache to avoid repeated DB queries during a request cycle
+let tokenCache: Record<string, { value: string | undefined; timestamp: number }> = {};
+const TOKEN_CACHE_TTL = 30000; // 30 seconds cache for tokens
 
-// Check if any tokens are configured
-const hasAnyToken = Object.values(AGENT_TOKENS).some(Boolean);
-const DEMO_MODE = !hasAnyToken;
+// Get agent token from database (with cache)
+async function getAgentToken(agent: CasinoAgent): Promise<string | undefined> {
+  const key = `CASINO_747_TOKEN_${agent.toUpperCase()}`;
+
+  // Check cache
+  const cached = tokenCache[key];
+  if (cached && Date.now() - cached.timestamp < TOKEN_CACHE_TTL) {
+    return cached.value;
+  }
+
+  // Get from database (falls back to env var)
+  const token = await getSystemSetting(key, "");
+  tokenCache[key] = { value: token || undefined, timestamp: Date.now() };
+
+  return token || undefined;
+}
+
+// Check if any tokens are configured (checks database dynamically)
+async function checkDemoMode(): Promise<boolean> {
+  for (const agent of CASINO_AGENTS) {
+    const token = await getAgentToken(agent);
+    if (token) {
+      return false; // Has at least one token, not demo mode
+    }
+  }
+  return true; // No tokens configured, demo mode
+}
+
+// Clear token cache (call when settings are updated)
+export function clearTokenCache(): void {
+  tokenCache = {};
+}
 
 interface CasinoApiResponse {
   success: boolean;
@@ -175,8 +203,8 @@ interface CasinoTransferParams {
 
 async function executeCasinoTransfer(params: CasinoTransferParams): Promise<CasinoApiResponse> {
   const { agent, username, amount, isAgent, nonce, comment } = params;
-  
-  const token = AGENT_TOKENS[agent];
+
+  const token = await getAgentToken(agent);
   if (!token) {
     console.error(`[Casino Transfer] No token configured for agent: ${agent}`);
     return { success: false, message: `Token not configured for agent ${agent}` };
@@ -226,7 +254,7 @@ async function findUserAgent(casinoUsername: string, preferredIsAgent?: boolean)
     
     // Create parallel API calls for all agents with current isAgent value
     const apiCalls = CASINO_AGENTS.map(async (agentName) => {
-      const token = AGENT_TOKENS[agentName];
+      const token = await getAgentToken(agentName);
       if (!token) return { agentName, result: null };
       
       try {
@@ -311,12 +339,13 @@ router.post("/connect", async (req: Request, res: Response) => {
       });
     }
 
-    if (DEMO_MODE) {
+    const isDemoMode = await checkDemoMode();
+    if (isDemoMode) {
       // Demo mode - create a mock link (delete existing first)
       if (existingLink) {
         await storage.deleteCasinoLink(user.id);
       }
-      
+
       const link = await storage.createCasinoLink({
         userId: user.id,
         casinoUsername: casinoUsername,
@@ -388,47 +417,48 @@ router.get("/balance", async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
 
+    const isDemoMode = await checkDemoMode();
     const link = await storage.getCasinoLink(user.id);
 
     // Not connected
     if (!link) {
-      return res.json({ 
-        success: true, 
-        connected: false, 
+      return res.json({
+        success: true,
+        connected: false,
         balance: null,
-        demoMode: DEMO_MODE,
-        message: "Connect your casino account first" 
+        demoMode: isDemoMode,
+        message: "Connect your casino account first"
       });
     }
-    
+
     // Check for demo status (allow demo transactions but flag them)
-    const isDemo = link.status === "demo" || DEMO_MODE;
-    
+    const isDemo = link.status === "demo" || isDemoMode;
+
     if (!["verified", "demo"].includes(link.status)) {
-      return res.json({ 
-        success: true, 
-        connected: false, 
+      return res.json({
+        success: true,
+        connected: false,
         balance: null,
-        demoMode: DEMO_MODE,
-        message: "Casino link not verified" 
+        demoMode: isDemoMode,
+        message: "Casino link not verified"
       });
     }
 
     if (isDemo) {
-      return res.json({ 
-        success: true, 
+      return res.json({
+        success: true,
         connected: true,
         demoMode: true,
         balance: 1000,
         username: link.casinoUsername,
         assignedAgent: link.assignedAgent,
         isAgent: link.isAgent,
-        message: "Demo mode - balance simulated" 
+        message: "Demo mode - balance simulated"
       });
     }
 
     // Get balance using the assigned agent's token
-    const token = AGENT_TOKENS[link.assignedAgent as CasinoAgent];
+    const token = await getAgentToken(link.assignedAgent as CasinoAgent);
     if (!token) {
       return res.status(500).json({ success: false, message: "Agent token not configured" });
     }
@@ -529,8 +559,69 @@ router.post("/deposit", async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
 
-    const { amount } = req.body;
+    const { amount, pin } = req.body;
     const depositAmount = Math.floor(parseFloat(amount?.toString() || "0"));
+
+    // Get full user record for PIN verification
+    const fullUser = await storage.getUser(user.id);
+    if (!fullUser) {
+      return res.status(401).json({ success: false, message: "User not found" });
+    }
+
+    // PIN verification required for casino transactions
+    if (!fullUser.pinHash) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN required. Please set up your PIN in Security settings first.",
+        requiresPin: true,
+        needsPinSetup: true
+      });
+    }
+
+    if (!pin) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN required for casino transactions",
+        requiresPin: true
+      });
+    }
+
+    // Check PIN lockout
+    if (fullUser.pinLockedUntil && new Date(fullUser.pinLockedUntil) > new Date()) {
+      const remainingMinutes = Math.ceil((new Date(fullUser.pinLockedUntil).getTime() - Date.now()) / 60000);
+      return res.status(423).json({
+        success: false,
+        message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
+        lockedUntil: fullUser.pinLockedUntil
+      });
+    }
+
+    // Verify PIN
+    const isValidPin = await bcrypt.compare(pin, fullUser.pinHash);
+    if (!isValidPin) {
+      const newAttempts = (fullUser.pinFailedAttempts || 0) + 1;
+      const maxAttempts = 5;
+
+      if (newAttempts >= maxAttempts) {
+        const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
+        await storage.updateUserPinAttempts(fullUser.id, newAttempts, lockUntil);
+        return res.status(423).json({
+          success: false,
+          message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
+          lockedUntil: lockUntil
+        });
+      }
+
+      await storage.updateUserPinAttempts(fullUser.id, newAttempts, null);
+      return res.status(401).json({
+        success: false,
+        message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
+        attemptsRemaining: maxAttempts - newAttempts
+      });
+    }
+
+    // Reset failed attempts on success
+    await storage.updateUserPinAttempts(fullUser.id, 0, null);
     
     if (!depositAmount || depositAmount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
@@ -549,8 +640,9 @@ router.post("/deposit", async (req: Request, res: Response) => {
     if (!link || !["verified", "demo"].includes(link.status)) {
       return res.status(400).json({ success: false, message: "Connect and verify your casino account first" });
     }
-    
-    const isDemo = link.status === "demo" || DEMO_MODE;
+
+    const isDemoMode = await checkDemoMode();
+    const isDemo = link.status === "demo" || isDemoMode;
 
     // Get admin user ID for transaction logging
     const adminId = await getAdminUserId();
@@ -579,6 +671,27 @@ router.post("/deposit", async (req: Request, res: Response) => {
     const userCliId = paygramConnection?.paygramUserId || user.username || user.email;
     if (!userCliId) {
       return res.status(400).json({ success: false, message: "User wallet identifier not found" });
+    }
+
+    // Pre-check: Verify user has sufficient PHPT balance BEFORE attempting transfer
+    // This gives a clear error message instead of a generic "insufficient balance" from PayGram
+    const userBalance = await getUserPhptBalance(userCliId);
+    console.log(`[Casino Deposit] User ${userCliId} balance check: ${userBalance.balance} PHPT (needed: ${depositAmount})`);
+
+    if (!userBalance.success) {
+      console.error(`[Casino Deposit] Failed to check user balance: ${userBalance.message}`);
+      return res.status(400).json({
+        success: false,
+        message: "Could not verify your wallet balance. Please try again."
+      });
+    }
+
+    if (userBalance.balance < depositAmount) {
+      console.log(`[Casino Deposit] Insufficient balance: ${userBalance.balance} < ${depositAmount}`);
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient PHPT balance. You have ₱${userBalance.balance.toLocaleString()} but need ₱${depositAmount.toLocaleString()}.`
+      });
     }
 
     // Generate unique transaction ID with random suffix to prevent collisions
@@ -724,8 +837,69 @@ router.post("/withdraw", async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
 
-    const { amount } = req.body;
+    const { amount, pin } = req.body;
     const withdrawAmount = Math.floor(parseFloat(amount?.toString() || "0"));
+
+    // Get full user record for PIN verification
+    const fullUser = await storage.getUser(user.id);
+    if (!fullUser) {
+      return res.status(401).json({ success: false, message: "User not found" });
+    }
+
+    // PIN verification required for casino transactions
+    if (!fullUser.pinHash) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN required. Please set up your PIN in Security settings first.",
+        requiresPin: true,
+        needsPinSetup: true
+      });
+    }
+
+    if (!pin) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN required for casino transactions",
+        requiresPin: true
+      });
+    }
+
+    // Check PIN lockout
+    if (fullUser.pinLockedUntil && new Date(fullUser.pinLockedUntil) > new Date()) {
+      const remainingMinutes = Math.ceil((new Date(fullUser.pinLockedUntil).getTime() - Date.now()) / 60000);
+      return res.status(423).json({
+        success: false,
+        message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
+        lockedUntil: fullUser.pinLockedUntil
+      });
+    }
+
+    // Verify PIN
+    const isValidPin = await bcrypt.compare(pin, fullUser.pinHash);
+    if (!isValidPin) {
+      const newAttempts = (fullUser.pinFailedAttempts || 0) + 1;
+      const maxAttempts = 5;
+
+      if (newAttempts >= maxAttempts) {
+        const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
+        await storage.updateUserPinAttempts(fullUser.id, newAttempts, lockUntil);
+        return res.status(423).json({
+          success: false,
+          message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
+          lockedUntil: lockUntil
+        });
+      }
+
+      await storage.updateUserPinAttempts(fullUser.id, newAttempts, null);
+      return res.status(401).json({
+        success: false,
+        message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
+        attemptsRemaining: maxAttempts - newAttempts
+      });
+    }
+
+    // Reset failed attempts on success
+    await storage.updateUserPinAttempts(fullUser.id, 0, null);
     
     if (!withdrawAmount || withdrawAmount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
@@ -744,8 +918,9 @@ router.post("/withdraw", async (req: Request, res: Response) => {
     if (!link || !["verified", "demo"].includes(link.status)) {
       return res.status(400).json({ success: false, message: "Connect and verify your casino account first" });
     }
-    
-    const isDemo = link.status === "demo" || DEMO_MODE;
+
+    const isDemoMode = await checkDemoMode();
+    const isDemo = link.status === "demo" || isDemoMode;
 
     // Get admin user ID for transaction logging
     const adminId = await getAdminUserId();
@@ -778,7 +953,8 @@ router.post("/withdraw", async (req: Request, res: Response) => {
 
     // Pre-check: Verify admin escrow has sufficient PHPT balance BEFORE withdrawing chips
     // This prevents the scenario where chips are withdrawn but PHPT payout fails
-    const adminEscrowId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+    // Super admin's PayGram username is always "superadmin" (the escrow account)
+    const adminEscrowId = "superadmin";
     const escrowBalance = await getUserPhptBalance(adminEscrowId);
     console.log(`[Casino Withdraw] Admin escrow balance check: ${escrowBalance.balance} PHPT (needed: ${withdrawAmount})`);
     
@@ -982,7 +1158,8 @@ router.post("/validate", async (req: Request, res: Response) => {
 
     const casinoUsername = username.trim().toLowerCase();
 
-    if (DEMO_MODE) {
+    const isDemoMode = await checkDemoMode();
+    if (isDemoMode) {
       // Demo mode - simulate validation
       return res.json({
         success: true,
@@ -1046,22 +1223,24 @@ router.post("/send-otp", async (req: Request, res: Response) => {
     }
 
     // Get the agent's token
-    const token = AGENT_TOKENS[agent];
+    const token = await getAgentToken(agent);
     if (!token) {
       return res.status(500).json({ success: false, message: "Agent token not configured" });
     }
+
+    const isDemoMode = await checkDemoMode();
 
     // PLAYER ACCOUNTS: Use balance verification instead of OTP
     // Use detected isAgent from API, not user-provided value
     if (!detectedIsAgent) {
       console.log(`[Casino] Player verification - fetching balance for ${casinoUsername}`);
-      
+
       // Fetch player's current balance from statistics endpoint
       const statsResult = await callCasinoApiPost("/statistics/transactions-by-client-username", token, {
         username: canonicalUsername || casinoUsername,
         currency: "php"
       });
-      
+
       if (!statsResult.success || !statsResult.data || statsResult.data.currentBalance === undefined) {
         console.log(`[Casino] Failed to fetch balance for player ${casinoUsername}:`, statsResult.message);
         return res.status(400).json({
@@ -1069,10 +1248,10 @@ router.post("/send-otp", async (req: Request, res: Response) => {
           message: "Could not fetch your casino balance. Please try again or contact support."
         });
       }
-      
+
       const currentBalance = parseFloat(statsResult.data.currentBalance) || 0;
       const balanceKey = `${user.id}_${casinoUsername}`;
-      
+
       // Store balance challenge with 10-minute expiry
       balanceChallengeStore.set(balanceKey, {
         expectedBalance: currentBalance,
@@ -1083,10 +1262,10 @@ router.post("/send-otp", async (req: Request, res: Response) => {
         agentClientId: agentClientId || "",
         agentUsername: agentUsername || ""
       });
-      
+
       console.log(`[Casino] Balance challenge stored for ${casinoUsername}: ₱${currentBalance.toFixed(2)}`);
-      
-      if (DEMO_MODE) {
+
+      if (isDemoMode) {
         return res.json({
           success: true,
           message: "Demo mode - Enter your current casino balance to verify",
@@ -1095,7 +1274,7 @@ router.post("/send-otp", async (req: Request, res: Response) => {
           demoBalance: currentBalance // Only in demo mode for testing
         });
       }
-      
+
       return res.json({
         success: true,
         message: "Enter your current 747 casino balance to verify account ownership",
@@ -1106,7 +1285,7 @@ router.post("/send-otp", async (req: Request, res: Response) => {
     // AGENT ACCOUNTS: Use OTP via SendMessage
     const otp = generateOtp();
     const otpKey = `${user.id}_${casinoUsername}`;
-    
+
     // Store OTP with 10-minute expiry
     otpStore.set(otpKey, {
       otp,
@@ -1117,7 +1296,7 @@ router.post("/send-otp", async (req: Request, res: Response) => {
       clientId: clientId || ""
     });
 
-    if (DEMO_MODE) {
+    if (isDemoMode) {
       console.log(`[Casino] DEMO OTP for agent ${casinoUsername}: ${otp}`);
       return res.json({
         success: true,
@@ -1346,7 +1525,8 @@ router.get("/finance", async (req: Request, res: Response) => {
     const fromUtc = (req.query.from as string) || fromDate.toISOString();
     const toUtc = (req.query.to as string) || toDate.toISOString();
 
-    if (DEMO_MODE) {
+    const isDemoMode = await checkDemoMode();
+    if (isDemoMode) {
       // Demo mode: return sample transactions
       return res.json({
         success: true,
@@ -1359,7 +1539,7 @@ router.get("/finance", async (req: Request, res: Response) => {
       });
     }
 
-    const token = AGENT_TOKENS[link.assignedAgent as CasinoAgent];
+    const token = await getAgentToken(link.assignedAgent as CasinoAgent);
     if (!token) {
       return res.status(500).json({ success: false, message: "Agent token not configured" });
     }
@@ -1430,7 +1610,8 @@ router.get("/statistics", async (req: Request, res: Response) => {
       return res.json({ success: true, stats: null, message: "No casino account connected" });
     }
 
-    if (DEMO_MODE) {
+    const isDemoMode = await checkDemoMode();
+    if (isDemoMode) {
       // Demo mode: return sample statistics
       return res.json({
         success: true,
@@ -1446,7 +1627,7 @@ router.get("/statistics", async (req: Request, res: Response) => {
       });
     }
 
-    const token = AGENT_TOKENS[link.assignedAgent as CasinoAgent];
+    const token = await getAgentToken(link.assignedAgent as CasinoAgent);
     if (!token) {
       return res.status(500).json({ success: false, message: "Agent token not configured" });
     }
@@ -1799,9 +1980,10 @@ router.post("/disconnect", async (req: Request, res: Response) => {
   }
 });
 
-export function registerCasinoRoutes(app: any, authMiddleware: any) {
+export async function registerCasinoRoutes(app: any, authMiddleware: any) {
   app.use("/api/casino", authMiddleware, router);
-  console.log(`[Casino] 747Live routes registered (Demo mode: ${DEMO_MODE})`);
+  const isDemoMode = await checkDemoMode();
+  console.log(`[Casino] 747Live routes registered (Demo mode: ${isDemoMode})`);
 }
 
 export default router;

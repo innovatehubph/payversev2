@@ -11,6 +11,14 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
+import {
   Gamepad2,
   ArrowLeft,
   User,
@@ -33,7 +41,8 @@ import {
   Coins,
   History,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Lock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/lib/api";
@@ -152,24 +161,29 @@ export default function Casino() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
 
+  // PIN entry state
+  const [pin, setPin] = useState("");
+  const [showPinDialog, setShowPinDialog] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"deposit" | "withdraw" | null>(null);
+
   const getAuthHeaders = useCallback(() => {
     const token = getAuthToken();
     return { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
   }, []);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [walletRes, casinoRes] = await Promise.all([
         fetch("/api/wallet/balance", { headers: getAuthHeaders() }),
         fetch("/api/casino/balance", { headers: getAuthHeaders() })
       ]);
-      
+
       const walletData = await walletRes.json();
       if (walletData.success) {
         setPhptBalance(parseFloat(walletData.phptBalance) || 0);
       }
-      
+
       const casinoData = await casinoRes.json();
       setStatus(casinoData);
 
@@ -180,19 +194,19 @@ export default function Casino() {
           fetch("/api/casino/statistics", { headers: getAuthHeaders() }),
           fetch("/api/casino/finance", { headers: getAuthHeaders() })
         ]);
-        
+
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           setTransactions(historyData.transactions?.slice(0, 5) || []);
         }
-        
+
         if (statsRes.ok) {
           const statsData = await statsRes.json();
           if (statsData.success && statsData.stats) {
             setCasinoStats(statsData.stats);
           }
         }
-        
+
         if (financeRes.ok) {
           const financeData = await financeRes.json();
           if (financeData.success && financeData.transactions) {
@@ -201,9 +215,9 @@ export default function Casino() {
         }
       }
     } catch (error) {
-      console.error("Failed to fetch data:", error);
+      if (!silent) console.error("Failed to fetch data:", error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [getAuthHeaders]);
 
@@ -213,18 +227,16 @@ export default function Casino() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-refresh balances every 15 seconds for real-time sync
-  // Only refresh when tab is visible and user is a connected player (not agent)
+  // Silent background refresh every 15 seconds (no loading indicators)
   useEffect(() => {
-    const balanceInterval = setInterval(() => {
-      if (!document.hidden && status?.connected && !status?.isAgent) {
-        fetchData();
+    const refreshInterval = setInterval(() => {
+      if (!document.hidden && status?.connected) {
+        fetchData(true); // silent mode
       }
     }, 15000);
-    
-    return () => clearInterval(balanceInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.connected, status?.isAgent]);
+
+    return () => clearInterval(refreshInterval);
+  }, [status?.connected, fetchData]);
 
   const handleValidateUsername = async () => {
     if (!username.trim()) {
@@ -383,30 +395,9 @@ export default function Casino() {
       return;
     }
 
-    setProcessing(true);
-    try {
-      const response = await fetch("/api/casino/deposit", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ amount: parsedAmount })
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        setSuccessMessage(`₱${parsedAmount.toLocaleString()} chips added to casino!`);
-        setShowSuccess(true);
-        setDepositAmount("");
-        await fetchData();
-        setTimeout(() => setShowSuccess(false), 3000);
-      } else {
-        toast({ title: "Failed", description: data.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } finally {
-      setProcessing(false);
-    }
+    // Show PIN dialog instead of processing directly
+    setPendingAction("deposit");
+    setShowPinDialog(true);
   };
 
   const handleWithdraw = async () => {
@@ -419,37 +410,74 @@ export default function Casino() {
     // Use withdrawableBalance if available, otherwise fall back to balance
     const availableForWithdraw = status?.withdrawableBalance ?? status?.balance ?? 0;
     if (parsedAmount > availableForWithdraw) {
-      toast({ 
-        title: "Insufficient Withdrawable Balance", 
-        description: `You can only withdraw ₱${availableForWithdraw.toLocaleString()}. Some chips may be locked or non-cashable.`, 
-        variant: "destructive" 
+      toast({
+        title: "Insufficient Withdrawable Balance",
+        description: `You can only withdraw ₱${availableForWithdraw.toLocaleString()}. Some chips may be locked or non-cashable.`,
+        variant: "destructive"
       });
       return;
     }
 
+    // Show PIN dialog instead of processing directly
+    setPendingAction("withdraw");
+    setShowPinDialog(true);
+  };
+
+  // Execute the actual transaction after PIN verification
+  const handleConfirmTransaction = async () => {
+    if (pin.length !== 6) {
+      toast({ title: "Invalid PIN", description: "Please enter your 6-digit PIN", variant: "destructive" });
+      return;
+    }
+
+    const isDeposit = pendingAction === "deposit";
+    const amount = isDeposit ? parseFloat(depositAmount) : parseFloat(withdrawAmount);
+    const endpoint = isDeposit ? "/api/casino/deposit" : "/api/casino/withdraw";
+
     setProcessing(true);
     try {
-      const response = await fetch("/api/casino/withdraw", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ amount: parsedAmount })
+        body: JSON.stringify({ amount, pin })
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
-        setSuccessMessage(`₱${parsedAmount.toLocaleString()} PHPT credited to wallet!`);
+        setSuccessMessage(isDeposit
+          ? `₱${amount.toLocaleString()} chips added to casino!`
+          : `₱${amount.toLocaleString()} PHPT credited to wallet!`
+        );
         setShowSuccess(true);
-        setWithdrawAmount("");
+        if (isDeposit) {
+          setDepositAmount("");
+        } else {
+          setWithdrawAmount("");
+        }
         await fetchData();
         setTimeout(() => setShowSuccess(false), 3000);
       } else {
-        toast({ title: "Failed", description: data.message, variant: "destructive" });
+        // Handle specific PIN-related errors
+        if (data.requiresPin && data.needsPinSetup) {
+          toast({ title: "PIN Required", description: "Please set up your PIN in Security settings first.", variant: "destructive" });
+        } else if (data.lockedUntil) {
+          toast({ title: "PIN Locked", description: data.message, variant: "destructive" });
+        } else if (data.attemptsRemaining !== undefined) {
+          toast({ title: "Invalid PIN", description: data.message, variant: "destructive" });
+          setPin(""); // Clear PIN for retry
+          return; // Don't close dialog on invalid PIN
+        } else {
+          toast({ title: "Failed", description: data.message, variant: "destructive" });
+        }
       }
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setProcessing(false);
+      setShowPinDialog(false);
+      setPin("");
+      setPendingAction(null);
     }
   };
 
@@ -485,10 +513,10 @@ export default function Casino() {
             </h1>
           </div>
           {status?.connected && (
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="icon"
-              onClick={fetchData}
+              onClick={() => fetchData()}
               disabled={loading}
               data-testid="button-refresh"
             >
@@ -1295,6 +1323,108 @@ export default function Casino() {
           </>
         )}
       </div>
+
+      {/* PIN Verification Dialog */}
+      <Dialog open={showPinDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowPinDialog(false);
+          setPin("");
+          setPendingAction(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-center pb-2">
+            <div className="mx-auto h-14 w-14 rounded-full bg-gradient-to-br from-rose-500/20 to-orange-500/20 flex items-center justify-center mb-3">
+              {pendingAction === "deposit" ? (
+                <ArrowDownToLine className="h-7 w-7 text-rose-500" />
+              ) : (
+                <ArrowUpFromLine className="h-7 w-7 text-green-500" />
+              )}
+            </div>
+            <DialogTitle className="text-xl">
+              Confirm {pendingAction === "deposit" ? "Deposit" : "Withdrawal"}
+            </DialogTitle>
+            <DialogDescription>Enter your PIN to continue</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Amount Display */}
+            <div className="text-center p-4 rounded-xl bg-gradient-to-br from-rose-500/10 to-orange-500/10 border border-rose-500/20">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                {pendingAction === "deposit" ? "Buying Chips" : "Selling Chips"}
+              </p>
+              <p className="text-3xl font-bold text-rose-600">
+                ₱{parseFloat(pendingAction === "deposit" ? depositAmount : withdrawAmount || "0").toLocaleString()}
+              </p>
+              <Badge variant="outline" className="mt-2">
+                {pendingAction === "deposit" ? "PHPT → Chips" : "Chips → PHPT"}
+              </Badge>
+            </div>
+
+            {/* PIN Input */}
+            <div className="p-4 rounded-xl bg-secondary/30 border">
+              <div className="flex items-center gap-2 mb-3">
+                <Lock className="h-4 w-4 text-primary" />
+                <p className="text-sm font-medium">Enter your 6-digit PIN</p>
+              </div>
+              <div className="flex justify-center">
+                <InputOTP maxLength={6} value={pin} onChange={setPin}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} className="h-11 w-10" />
+                    <InputOTPSlot index={1} className="h-11 w-10" />
+                    <InputOTPSlot index={2} className="h-11 w-10" />
+                    <InputOTPSlot index={3} className="h-11 w-10" />
+                    <InputOTPSlot index={4} className="h-11 w-10" />
+                    <InputOTPSlot index={5} className="h-11 w-10" />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            </div>
+
+            {/* Warning */}
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Important</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {pendingAction === "deposit"
+                    ? "PHPT will be deducted from your wallet to buy casino chips."
+                    : "Casino chips will be sold and PHPT credited to your wallet."}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-3 sm:gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setShowPinDialog(false);
+                setPin("");
+                setPendingAction(null);
+              }}
+              disabled={processing}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600"
+              onClick={handleConfirmTransaction}
+              disabled={processing || pin.length !== 6}
+            >
+              {processing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : pendingAction === "deposit" ? (
+                <ArrowDownToLine className="mr-2 h-4 w-4" />
+              ) : (
+                <ArrowUpFromLine className="mr-2 h-4 w-4" />
+              )}
+              {processing ? "Processing..." : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

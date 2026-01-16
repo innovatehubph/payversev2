@@ -15,6 +15,7 @@ export default function Auth() {
     password: "",
     fullName: "",
     username: "",
+    pin: "",
   });
   const { login, register, user } = useAuth();
   const { toast } = useToast();
@@ -37,6 +38,14 @@ export default function Auth() {
           toast({
             title: "Error",
             description: "Please fill in all fields",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (!formData.pin || formData.pin.length !== 6 || !/^\d{6}$/.test(formData.pin)) {
+          toast({
+            title: "Error",
+            description: "Please enter a valid 6-digit PIN",
             variant: "destructive",
           });
           return;
@@ -161,10 +170,10 @@ export default function Auth() {
                 <Label htmlFor="password" className="text-white">Password</Label>
                 {isLogin && <a href="/forgot-password" className="text-xs text-white/80 font-medium hover:text-white" data-testid="link-forgot-password">Forgot Password?</a>}
               </div>
-              <Input 
-                id="password" 
-                type="password" 
-                placeholder="••••••••" 
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
                 className="h-12 bg-white text-gray-700 border-0"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -172,6 +181,25 @@ export default function Auth() {
                 minLength={6}
               />
             </div>
+
+            {!isLogin && (
+              <div className="space-y-2">
+                <Label htmlFor="pin" className="text-white">Transaction PIN</Label>
+                <Input
+                  id="pin"
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="6-digit PIN"
+                  className="h-12 bg-white text-gray-700 border-0 text-center tracking-widest"
+                  value={formData.pin}
+                  onChange={(e) => setFormData({ ...formData, pin: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                  required
+                  maxLength={6}
+                />
+                <p className="text-xs text-white/60">This PIN will be required for all transactions</p>
+              </div>
+            )}
 
             <Button 
               type="submit" 

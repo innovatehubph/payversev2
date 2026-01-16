@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
+import { registerPaygramUser } from "./paygram";
 
 export async function seedAdminAccount() {
   try {
@@ -7,9 +8,11 @@ export async function seedAdminAccount() {
     const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || "admin123";
     const superAdminName = process.env.SUPER_ADMIN_NAME || "PayVerse Super Admin";
     const superAdminUsername = process.env.SUPER_ADMIN_USERNAME || "superadmin";
-    
+    // PayGram CLI ID is the same as the username (superadmin)
+    const paygramCliId = superAdminUsername;
+
     const existingSuperAdmin = await storage.getUserByEmail(superAdminEmail);
-    
+
     if (!existingSuperAdmin) {
       const hashedPassword = await bcrypt.hash(superAdminPassword, 10);
       await storage.createUser({
@@ -23,11 +26,28 @@ export async function seedAdminAccount() {
         role: "super_admin"
       });
       console.log(`[Seed] Super admin account created: ${superAdminEmail}`);
+
+      // Register super admin on PayGram with their username
+      registerPaygramUser(superAdminUsername).catch(err => {
+        console.warn(`[Seed] PayGram registration for ${superAdminUsername} failed (may already exist):`, err.message);
+      });
+
+      // Also register the PayGram CLI ID if different from username
+      if (paygramCliId !== superAdminUsername) {
+        registerPaygramUser(paygramCliId).catch(err => {
+          console.warn(`[Seed] PayGram registration for ${paygramCliId} failed (may already exist):`, err.message);
+        });
+      }
     } else if (existingSuperAdmin.role !== "super_admin") {
       await storage.updateUserRole(existingSuperAdmin.id, "super_admin");
       console.log(`[Seed] Existing account upgraded to super_admin: ${superAdminEmail}`);
     } else {
       console.log(`[Seed] Super admin already exists: ${superAdminEmail}`);
+
+      // Ensure PayGram registration exists for existing super admin
+      registerPaygramUser(existingSuperAdmin.username).catch(err => {
+        // Silent fail - user likely already registered
+      });
     }
     
     // Migrate existing admins to have proper role

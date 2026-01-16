@@ -1,6 +1,6 @@
 import { db, pool } from "../db";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { users, transactions, paygramConnections, cryptoInvoices, cryptoWithdrawals, adminAuditLogs, balanceAdjustments, manualPaymentMethods, manualDepositRequests, emailOtps, kycDocuments, userTutorials, casinoLinks, casinoTransactions, type User, type InsertUser, type Transaction, type InsertTransaction, type PaygramConnection, type CryptoInvoice, type CryptoWithdrawal, type AdminAuditLog, type InsertAdminAuditLog, type BalanceAdjustment, type InsertBalanceAdjustment, type ManualPaymentMethod, type InsertManualPaymentMethod, type ManualDepositRequest, type InsertManualDepositRequest, type EmailOtp, type InsertEmailOtp, type KycDocument, type InsertKycDocument, type CasinoLink, type InsertCasinoLink, type CasinoTransaction, type InsertCasinoTransaction } from "@shared/schema";
+import { users, transactions, paygramConnections, cryptoInvoices, cryptoWithdrawals, adminAuditLogs, balanceAdjustments, manualPaymentMethods, manualDepositRequests, emailOtps, kycDocuments, userTutorials, casinoLinks, casinoTransactions, userBankAccounts, manualWithdrawalRequests, type User, type InsertUser, type Transaction, type InsertTransaction, type PaygramConnection, type CryptoInvoice, type CryptoWithdrawal, type AdminAuditLog, type InsertAdminAuditLog, type BalanceAdjustment, type InsertBalanceAdjustment, type ManualPaymentMethod, type InsertManualPaymentMethod, type ManualDepositRequest, type InsertManualDepositRequest, type EmailOtp, type InsertEmailOtp, type KycDocument, type InsertKycDocument, type CasinoLink, type InsertCasinoLink, type CasinoTransaction, type InsertCasinoTransaction, type UserBankAccount, type InsertUserBankAccount, type ManualWithdrawalRequest, type InsertManualWithdrawal } from "@shared/schema";
 import { eq, desc, or, sql, ilike, and, gt, lt, inArray, isNull } from "drizzle-orm";
 
 export interface IStorage {
@@ -97,6 +97,9 @@ export interface IStorage {
   createEmailOtp(data: { email: string; otp: string; purpose: string; expiresAt: Date }): Promise<EmailOtp>;
   verifyEmailOtp(email: string, otp: string, purpose: string): Promise<{ valid: boolean; message?: string }>;
   
+  // User Updates
+  updateUser(userId: number, updates: Partial<Pick<User, 'phptBalance' | 'balance' | 'phoneNumber' | 'kycStatus'>>): Promise<void>;
+
   // PIN Management
   updateUserPin(userId: number, pinHash: string): Promise<void>;
   updateUserPinAttempts(userId: number, attempts: number, lockedUntil: Date | null): Promise<void>;
@@ -152,33 +155,53 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  /**
+   * @deprecated Use balanceService.creditPhpt() or balanceService.debitPhpt() instead.
+   * This method does NOT create transaction records.
+   */
   async updateUserBalance(userId: number, newBalance: string): Promise<void> {
+    console.warn("[DEPRECATED] updateUserBalance() - Use balanceService methods instead");
     await db.update(users).set({ balance: newBalance }).where(eq(users.id, userId));
   }
 
+  /**
+   * @deprecated Use balanceService.creditFiat() or balanceService.debitFiat() instead.
+   * This method does NOT create transaction records.
+   */
   async updateUserFiatBalance(userId: number, newBalance: string): Promise<void> {
+    console.warn("[DEPRECATED] updateUserFiatBalance() - Use balanceService methods instead");
     const user = await this.getUser(userId);
     if (!user) throw new Error("User not found");
     const phptBalance = parseFloat(user.phptBalance || "0");
     const newTotalBalance = (parseFloat(newBalance) + phptBalance).toFixed(2);
-    await db.update(users).set({ 
+    await db.update(users).set({
       fiatBalance: newBalance,
-      balance: newTotalBalance 
+      balance: newTotalBalance
     }).where(eq(users.id, userId));
   }
 
+  /**
+   * @deprecated Use balanceService.creditPhpt() or balanceService.syncFromPaygram() instead.
+   * This method does NOT create transaction records.
+   */
   async updateUserPhptBalance(userId: number, newBalance: string): Promise<void> {
+    console.warn("[DEPRECATED] updateUserPhptBalance() - Use balanceService methods instead");
     const user = await this.getUser(userId);
     if (!user) throw new Error("User not found");
     const fiatBalance = parseFloat(user.fiatBalance || "0");
     const newTotalBalance = (parseFloat(newBalance) + fiatBalance).toFixed(2);
-    await db.update(users).set({ 
+    await db.update(users).set({
       phptBalance: newBalance,
-      balance: newTotalBalance 
+      balance: newTotalBalance
     }).where(eq(users.id, userId));
   }
 
+  /**
+   * @deprecated Use balanceService.creditPhpt() instead.
+   * This method does NOT create transaction records - use balanceService for proper audit trail.
+   */
   async creditPhptBalance(userId: number, amount: number): Promise<{ newPhptBalance: string; newTotalBalance: string }> {
+    console.warn("[DEPRECATED] creditPhptBalance() - Use balanceService.creditPhpt() for proper transaction records");
     const user = await this.getUser(userId);
     if (!user) throw new Error("User not found");
     const currentPhpt = parseFloat(user.phptBalance || "0");
@@ -186,14 +209,19 @@ export class DatabaseStorage implements IStorage {
     const newPhptBalanceNum = currentPhpt + amount;
     const newPhptBalance = newPhptBalanceNum.toFixed(2);
     const newTotalBalance = (currentFiat + newPhptBalanceNum).toFixed(2);
-    await db.update(users).set({ 
+    await db.update(users).set({
       phptBalance: newPhptBalance,
-      balance: newTotalBalance 
+      balance: newTotalBalance
     }).where(eq(users.id, userId));
     return { newPhptBalance, newTotalBalance };
   }
 
+  /**
+   * @deprecated Use balanceService.debitPhpt() instead.
+   * This method does NOT create transaction records - use balanceService for proper audit trail.
+   */
   async debitPhptBalance(userId: number, amount: number): Promise<{ newPhptBalance: string; newTotalBalance: string }> {
+    console.warn("[DEPRECATED] debitPhptBalance() - Use balanceService.debitPhpt() for proper transaction records");
     const user = await this.getUser(userId);
     if (!user) throw new Error("User not found");
     const currentPhpt = parseFloat(user.phptBalance || "0");
@@ -204,14 +232,19 @@ export class DatabaseStorage implements IStorage {
     const newPhptBalanceNum = currentPhpt - amount;
     const newPhptBalance = newPhptBalanceNum.toFixed(2);
     const newTotalBalance = (currentFiat + newPhptBalanceNum).toFixed(2);
-    await db.update(users).set({ 
+    await db.update(users).set({
       phptBalance: newPhptBalance,
-      balance: newTotalBalance 
+      balance: newTotalBalance
     }).where(eq(users.id, userId));
     return { newPhptBalance, newTotalBalance };
   }
 
+  /**
+   * @deprecated Use balanceService.syncFromPaygram() instead.
+   * This method does NOT create transaction records - use balanceService for proper audit trail.
+   */
   async syncPhptBalance(userId: number, newBalance: number): Promise<void> {
+    console.warn("[DEPRECATED] syncPhptBalance() - Use balanceService.syncFromPaygram() for proper transaction records");
     const user = await this.getUser(userId);
     if (!user) throw new Error("User not found");
     // Guard against NaN from parseFloat
@@ -219,10 +252,21 @@ export class DatabaseStorage implements IStorage {
     const currentFiat = parseFloat(user.fiatBalance || "0") || 0;
     const newPhptBalance = sanitizedBalance.toFixed(2);
     const newTotalBalance = (currentFiat + sanitizedBalance).toFixed(2);
-    await db.update(users).set({ 
+    await db.update(users).set({
       phptBalance: newPhptBalance,
-      balance: newTotalBalance 
+      balance: newTotalBalance
     }).where(eq(users.id, userId));
+  }
+
+  /**
+   * Update user fields (for balance sync and profile updates)
+   */
+  async updateUser(userId: number, updates: Partial<Pick<User, 'phptBalance' | 'balance' | 'phoneNumber' | 'kycStatus'>>): Promise<void> {
+    // If updating phptBalance, also sync the balance field
+    if (updates.phptBalance && !updates.balance) {
+      updates.balance = updates.phptBalance;
+    }
+    await db.update(users).set(updates).where(eq(users.id, userId));
   }
 
   async createTransaction(insertTransaction: InsertTransaction): Promise<Transaction> {
@@ -431,16 +475,190 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  // Report queries with filters
+  async getAllTransactionsWithUsers(filters: {
+    from?: Date;
+    to?: Date;
+    status?: string;
+    type?: string;
+    userId?: number;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<any[]> {
+    // Build conditions array
+    const conditions: any[] = [];
+
+    if (filters.from) {
+      conditions.push(sql`${transactions.createdAt} >= ${filters.from}`);
+    }
+    if (filters.to) {
+      conditions.push(sql`${transactions.createdAt} <= ${filters.to}`);
+    }
+    if (filters.status) {
+      conditions.push(eq(transactions.status, filters.status));
+    }
+    if (filters.type) {
+      conditions.push(eq(transactions.type, filters.type));
+    }
+    if (filters.userId) {
+      conditions.push(
+        or(
+          eq(transactions.senderId, filters.userId),
+          eq(transactions.receiverId, filters.userId)
+        )
+      );
+    }
+
+    const limit = filters.limit || 100;
+    const offset = filters.offset || 0;
+
+    // Get transactions
+    let query = db.select().from(transactions);
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    const txList = await query
+      .orderBy(desc(transactions.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Enrich with user info
+    const enrichedTxs = await Promise.all(
+      txList.map(async (tx) => {
+        // Get user from receiverId (most common) or senderId
+        const userId = tx.receiverId || tx.senderId;
+        let userName = null;
+        let userEmail = null;
+        let username = null;
+
+        if (userId) {
+          const user = await this.getUser(userId);
+          if (user) {
+            userName = user.fullName;
+            userEmail = user.email;
+            username = user.username;
+          }
+        }
+
+        return {
+          ...tx,
+          userName,
+          userEmail,
+          username,
+        };
+      })
+    );
+
+    // Apply search filter on enriched data if needed
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      return enrichedTxs.filter(
+        (tx) =>
+          tx.userName?.toLowerCase().includes(searchLower) ||
+          tx.userEmail?.toLowerCase().includes(searchLower) ||
+          tx.username?.toLowerCase().includes(searchLower) ||
+          tx.note?.toLowerCase().includes(searchLower) ||
+          tx.externalTxId?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return enrichedTxs;
+  }
+
+  async getAllUsersWithStats(filters: {
+    search?: string;
+    kycStatus?: string;
+    role?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<any[]> {
+    // Build conditions
+    const conditions: any[] = [];
+
+    if (filters.search) {
+      const searchPattern = `%${filters.search}%`;
+      conditions.push(
+        or(
+          ilike(users.fullName, searchPattern),
+          ilike(users.email, searchPattern),
+          ilike(users.username, searchPattern)
+        )
+      );
+    }
+    if (filters.kycStatus) {
+      conditions.push(eq(users.kycStatus, filters.kycStatus));
+    }
+    if (filters.role) {
+      conditions.push(eq(users.role, filters.role));
+    }
+    if (filters.isActive !== undefined) {
+      conditions.push(eq(users.isActive, filters.isActive));
+    }
+
+    const limit = filters.limit || 1000;
+    const offset = filters.offset || 0;
+
+    let query = db.select().from(users);
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    const userList = await query
+      .orderBy(desc(users.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Enrich with transaction stats
+    const enrichedUsers = await Promise.all(
+      userList.map(async (user) => {
+        // Count transactions and sum volume
+        const [stats] = await db
+          .select({
+            count: sql<number>`count(*)`,
+            volume: sql<string>`COALESCE(SUM(amount), 0)`,
+          })
+          .from(transactions)
+          .where(
+            or(
+              eq(transactions.senderId, user.id),
+              eq(transactions.receiverId, user.id)
+            )
+          );
+
+        return {
+          ...user,
+          transactionCount: Number(stats?.count || 0),
+          totalVolume: stats?.volume || "0",
+        };
+      })
+    );
+
+    return enrichedUsers;
+  }
+
   async updateUserAdmin(userId: number, updates: { isActive?: boolean; isAdmin?: boolean; kycStatus?: string; role?: string }): Promise<void> {
-    const updateData: any = {};
+    // Build update object with proper typing
+    const updateData: Partial<{
+      isActive: boolean;
+      isAdmin: boolean;
+      kycStatus: string;
+      role: string;
+    }> = {};
+
     if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
     if (updates.isAdmin !== undefined) updateData.isAdmin = updates.isAdmin;
     if (updates.kycStatus !== undefined) updateData.kycStatus = updates.kycStatus;
     if (updates.role !== undefined) {
       updateData.role = updates.role;
+      // Sync deprecated isAdmin field with role for backward compatibility
       updateData.isAdmin = updates.role === "super_admin" || updates.role === "admin";
     }
-    
+
     if (Object.keys(updateData).length > 0) {
       await db.update(users).set(updateData).where(eq(users.id, userId));
     }
@@ -1018,7 +1236,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateKycDocumentStatus(id: number, status: string, adminNote?: string): Promise<void> {
-    const updateData: any = { status, updatedAt: new Date() };
+    const updateData: { status: string; updatedAt: Date; adminNote?: string } = {
+      status,
+      updatedAt: new Date()
+    };
     if (adminNote !== undefined) {
       updateData.adminNote = adminNote;
     }
@@ -1150,6 +1371,213 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(casinoTransactions)
       .where(eq(casinoTransactions.status, "manual_required"))
       .orderBy(casinoTransactions.createdAt);
+  }
+
+  // ==================== User Bank Accounts ====================
+
+  async getUserBankAccounts(userId: number): Promise<UserBankAccount[]> {
+    return await db.select().from(userBankAccounts)
+      .where(and(
+        eq(userBankAccounts.userId, userId),
+        eq(userBankAccounts.isActive, true)
+      ))
+      .orderBy(desc(userBankAccounts.isDefault), desc(userBankAccounts.createdAt));
+  }
+
+  async getUserBankAccount(id: number): Promise<UserBankAccount | undefined> {
+    const [account] = await db.select().from(userBankAccounts)
+      .where(eq(userBankAccounts.id, id));
+    return account;
+  }
+
+  async createUserBankAccount(userId: number, data: InsertUserBankAccount): Promise<UserBankAccount> {
+    // If this is the first account, make it default
+    const existingAccounts = await this.getUserBankAccounts(userId);
+    const isDefault = existingAccounts.length === 0;
+
+    const [account] = await db.insert(userBankAccounts)
+      .values({
+        userId,
+        ...data,
+        isDefault,
+      })
+      .returning();
+    return account;
+  }
+
+  async updateUserBankAccount(id: number, data: Partial<InsertUserBankAccount>): Promise<UserBankAccount | undefined> {
+    const [account] = await db.update(userBankAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(userBankAccounts.id, id))
+      .returning();
+    return account;
+  }
+
+  async deleteUserBankAccount(id: number): Promise<void> {
+    // Soft delete by setting isActive to false
+    await db.update(userBankAccounts)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(userBankAccounts.id, id));
+  }
+
+  async setDefaultBankAccount(userId: number, accountId: number): Promise<void> {
+    // First, unset all defaults for this user
+    await db.update(userBankAccounts)
+      .set({ isDefault: false, updatedAt: new Date() })
+      .where(eq(userBankAccounts.userId, userId));
+
+    // Then set the specified account as default
+    await db.update(userBankAccounts)
+      .set({ isDefault: true, updatedAt: new Date() })
+      .where(eq(userBankAccounts.id, accountId));
+  }
+
+  // ==================== Manual Withdrawal Requests ====================
+
+  async createManualWithdrawal(userId: number, data: InsertManualWithdrawal & { phptTxId?: string }): Promise<ManualWithdrawalRequest> {
+    const [withdrawal] = await db.insert(manualWithdrawalRequests)
+      .values({
+        userId,
+        userBankAccountId: data.userBankAccountId,
+        amount: data.amount,
+        phptTxId: data.phptTxId,
+        status: "pending",
+      })
+      .returning();
+    return withdrawal;
+  }
+
+  async getManualWithdrawal(id: number): Promise<ManualWithdrawalRequest | undefined> {
+    const [withdrawal] = await db.select().from(manualWithdrawalRequests)
+      .where(eq(manualWithdrawalRequests.id, id));
+    return withdrawal;
+  }
+
+  async getUserManualWithdrawals(userId: number): Promise<ManualWithdrawalRequest[]> {
+    return await db.select().from(manualWithdrawalRequests)
+      .where(eq(manualWithdrawalRequests.userId, userId))
+      .orderBy(desc(manualWithdrawalRequests.createdAt));
+  }
+
+  async getAllManualWithdrawals(): Promise<ManualWithdrawalRequest[]> {
+    return await db.select().from(manualWithdrawalRequests)
+      .orderBy(desc(manualWithdrawalRequests.createdAt));
+  }
+
+  async getPendingManualWithdrawals(): Promise<ManualWithdrawalRequest[]> {
+    return await db.select().from(manualWithdrawalRequests)
+      .where(eq(manualWithdrawalRequests.status, "pending"))
+      .orderBy(manualWithdrawalRequests.createdAt);
+  }
+
+  async getProcessingManualWithdrawals(): Promise<ManualWithdrawalRequest[]> {
+    return await db.select().from(manualWithdrawalRequests)
+      .where(eq(manualWithdrawalRequests.status, "processing"))
+      .orderBy(manualWithdrawalRequests.createdAt);
+  }
+
+  async updateManualWithdrawalStatus(
+    id: number,
+    status: string,
+    adminId?: number,
+    adminNote?: string,
+    rejectionReason?: string
+  ): Promise<ManualWithdrawalRequest | undefined> {
+    const updates: any = {
+      status,
+      updatedAt: new Date(),
+    };
+
+    if (adminId) updates.adminId = adminId;
+    if (adminNote) updates.adminNote = adminNote;
+    if (rejectionReason) updates.rejectionReason = rejectionReason;
+
+    if (status === "processing") {
+      updates.processedAt = new Date();
+    } else if (status === "completed") {
+      updates.completedAt = new Date();
+    }
+
+    const [withdrawal] = await db.update(manualWithdrawalRequests)
+      .set(updates)
+      .where(eq(manualWithdrawalRequests.id, id))
+      .returning();
+    return withdrawal;
+  }
+
+  async getManualWithdrawalWithDetails(id: number): Promise<any> {
+    const result = await db
+      .select({
+        withdrawal: manualWithdrawalRequests,
+        bankAccount: userBankAccounts,
+        user: users,
+      })
+      .from(manualWithdrawalRequests)
+      .leftJoin(userBankAccounts, eq(manualWithdrawalRequests.userBankAccountId, userBankAccounts.id))
+      .leftJoin(users, eq(manualWithdrawalRequests.userId, users.id))
+      .where(eq(manualWithdrawalRequests.id, id));
+
+    if (result.length === 0) return null;
+
+    return {
+      ...result[0].withdrawal,
+      bankAccount: result[0].bankAccount,
+      user: result[0].user ? {
+        id: result[0].user.id,
+        fullName: result[0].user.fullName,
+        email: result[0].user.email,
+        username: result[0].user.username,
+      } : null,
+    };
+  }
+
+  async getAllManualWithdrawalsWithDetails(): Promise<any[]> {
+    const result = await db
+      .select({
+        withdrawal: manualWithdrawalRequests,
+        bankAccount: userBankAccounts,
+        user: users,
+      })
+      .from(manualWithdrawalRequests)
+      .leftJoin(userBankAccounts, eq(manualWithdrawalRequests.userBankAccountId, userBankAccounts.id))
+      .leftJoin(users, eq(manualWithdrawalRequests.userId, users.id))
+      .orderBy(desc(manualWithdrawalRequests.createdAt));
+
+    return result.map(r => ({
+      ...r.withdrawal,
+      bankAccount: r.bankAccount,
+      user: r.user ? {
+        id: r.user.id,
+        fullName: r.user.fullName,
+        email: r.user.email,
+        username: r.user.username,
+      } : null,
+    }));
+  }
+
+  async getPendingManualWithdrawalsWithDetails(): Promise<any[]> {
+    const result = await db
+      .select({
+        withdrawal: manualWithdrawalRequests,
+        bankAccount: userBankAccounts,
+        user: users,
+      })
+      .from(manualWithdrawalRequests)
+      .leftJoin(userBankAccounts, eq(manualWithdrawalRequests.userBankAccountId, userBankAccounts.id))
+      .leftJoin(users, eq(manualWithdrawalRequests.userId, users.id))
+      .where(eq(manualWithdrawalRequests.status, "pending"))
+      .orderBy(manualWithdrawalRequests.createdAt);
+
+    return result.map(r => ({
+      ...r.withdrawal,
+      bankAccount: r.bankAccount,
+      user: r.user ? {
+        id: r.user.id,
+        fullName: r.user.fullName,
+        email: r.user.email,
+        username: r.user.username,
+      } : null,
+    }));
   }
 }
 

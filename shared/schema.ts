@@ -3,28 +3,62 @@ import { pgTable, text, varchar, serial, integer, timestamp, decimal, boolean } 
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const USER_ROLES = ["super_admin", "admin", "support", "user"] as const;
-export type UserRole = typeof USER_ROLES[number];
+// Re-export from constants for backward compatibility
+export { USER_ROLES, CASINO_AGENTS, CASINO_TX_STATUSES, LIMITS } from "./constants";
+export type { UserRole, CasinoAgent, CasinoTxStatus } from "./constants";
 
+// Import for internal use
+import { LIMITS } from "./constants";
+
+/**
+ * Users table
+ *
+ * BALANCE SYSTEM - PHPT IS THE SINGLE SOURCE OF TRUTH:
+ * - phptBalance: THE authoritative balance field (PHPT tokens)
+ * - balance: Mirror of phptBalance (kept in sync for compatibility)
+ * - fiatBalance: DEPRECATED - not used in transaction flows
+ *
+ * IMPORTANT:
+ * - Use balanceService (server/balance-service.ts) for ALL balance operations
+ * - balanceService ensures transaction records are created for audit trail
+ * - balance and phptBalance should ALWAYS be equal
+ * - Casino balance is display-only (player wallet connection, no transaction impact)
+ *
+ * DEPRECATED FIELDS (do not use in new code):
+ * - pin: Use pinHash instead (plain text PIN is insecure)
+ * - isAdmin: Use role field instead (supports more granular permissions)
+ * - fiatBalance: Not used - PHPT is the only balance that matters
+ */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   fullName: text("full_name").notNull(),
   username: text("username").notNull().unique(),
-  balance: decimal("balance", { precision: 15, scale: 2 }).notNull().default("0.00"),
+
+  // Balance fields - PHPT is single source of truth
+  balance: decimal("balance", { precision: 15, scale: 2 }).notNull().default("0.00"), // Mirror of phptBalance
+  /** @deprecated Not used in transaction flows - PHPT is the only balance */
   fiatBalance: decimal("fiat_balance", { precision: 15, scale: 2 }).notNull().default("0.00"),
-  phptBalance: decimal("phpt_balance", { precision: 15, scale: 2 }).notNull().default("0.00"),
-  pin: text("pin"), // Deprecated - use pinHash instead
+  phptBalance: decimal("phpt_balance", { precision: 15, scale: 2 }).notNull().default("0.00"), // Single source of truth
+
+  // PIN security - use pinHash, not pin
+  /** @deprecated Use pinHash instead - this field should not be used */
+  pin: text("pin"),
   pinHash: text("pin_hash"), // Hashed 6-digit PIN for transaction security
   pinUpdatedAt: timestamp("pin_updated_at"),
   pinFailedAttempts: integer("pin_failed_attempts").notNull().default(0),
   pinLockedUntil: timestamp("pin_locked_until"),
+
   phoneNumber: text("phone_number"),
   kycStatus: text("kyc_status").notNull().default("unverified"),
   isActive: boolean("is_active").notNull().default(true),
-  isAdmin: boolean("is_admin").notNull().default(false), // Deprecated - use role instead
+
+  // Role-based access - use role, not isAdmin
+  /** @deprecated Use role field instead - kept for backward compatibility */
+  isAdmin: boolean("is_admin").notNull().default(false),
   role: text("role").notNull().default("user"), // super_admin, admin, support, user
+
   lastLoginAt: timestamp("last_login_at"),
   lastLoginIp: text("last_login_ip"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -47,6 +81,7 @@ export const transactions = pgTable("transactions", {
   category: text("category"),
   note: text("note"),
   walletType: text("wallet_type").notNull().default("fiat"),
+  externalTxId: text("external_tx_id"), // External transaction ID (e.g., PayGram tx ID)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -99,8 +134,7 @@ export const cryptoWithdrawals = pgTable("crypto_withdrawals", {
 });
 
 // Casino Links - Store verified 747Live user-to-agent mappings
-export const CASINO_AGENTS = ["marcthepogi", "teammarc", "bossmarc747"] as const;
-export type CasinoAgent = typeof CASINO_AGENTS[number];
+// Note: CASINO_AGENTS is imported from constants.ts
 
 export const casinoLinks = pgTable("casino_links", {
   id: serial("id").primaryKey(),
@@ -129,18 +163,7 @@ export type CasinoLink = typeof casinoLinks.$inferSelect;
 export type InsertCasinoLink = z.infer<typeof insertCasinoLinkSchema>;
 
 // Casino Transactions - Track buy/sell chip operations with state machine for rollback
-export const CASINO_TX_STATUSES = [
-  "initiated",           // Transaction started
-  "escrow_debited",      // PHPT transferred to/from escrow (buy: user→admin, sell: admin→user pending)
-  "casino_debited",      // Casino chips transferred
-  "payout_pending",      // Waiting for PHPT payout (sell flow)
-  "refund_pending",      // Refund in progress (buy flow rollback)
-  "redeposit_pending",   // Re-depositing chips (sell flow rollback)
-  "completed",           // Transaction completed successfully
-  "failed",              // Transaction failed, manual intervention needed
-  "manual_required",     // Requires admin manual resolution
-] as const;
-export type CasinoTxStatus = typeof CASINO_TX_STATUSES[number];
+// Note: CASINO_TX_STATUSES is imported from constants.ts which includes full state machine documentation
 
 export const casinoTransactions = pgTable("casino_transactions", {
   id: serial("id").primaryKey(),
@@ -199,6 +222,14 @@ export const insertUserSchema = createInsertSchema(users, {
   fiatBalance: true,
   phptBalance: true,
   createdAt: true,
+}).extend({
+  // PIN is optional for internal user creation (e.g., seed), but validated when provided
+  pin: z.string().length(6).regex(/^\d{6}$/, "PIN must be 6 digits").optional(),
+});
+
+// Schema for user registration - PIN is required
+export const registerUserSchema = insertUserSchema.extend({
+  pin: z.string().length(6).regex(/^\d{6}$/, "PIN must be 6 digits"),
 });
 
 export const insertTransactionSchema = createInsertSchema(transactions).omit({
@@ -228,7 +259,8 @@ export const transferSchema = z.object({
   pin: z.string().regex(/^\d{6}$/, "PIN must be exactly 6 digits").optional(),
 });
 
-export const LARGE_TRANSFER_THRESHOLD = 5000;
+// Re-exported from constants for backward compatibility
+export const LARGE_TRANSFER_THRESHOLD = LIMITS.LARGE_TRANSFER_THRESHOLD;
 
 export const connectTelegramTokenSchema = z.object({
   telegramToken: z.string().min(10, "Telegram PayGram token is required"),
@@ -236,6 +268,7 @@ export const connectTelegramTokenSchema = z.object({
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type RegisterUser = z.infer<typeof registerUserSchema>;
 export type Transaction = typeof transactions.$inferSelect;
 export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -307,6 +340,71 @@ export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
 export type InsertAdminAuditLog = z.infer<typeof insertAdminAuditLogSchema>;
 export type BalanceAdjustment = typeof balanceAdjustments.$inferSelect;
 export type InsertBalanceAdjustment = z.infer<typeof insertBalanceAdjustmentSchema>;
+
+// ============================================================================
+// SYSTEM SETTINGS (Super Admin Only)
+// ============================================================================
+
+/**
+ * System Settings table
+ *
+ * Stores sensitive configuration like API keys, credentials, and system settings.
+ * Only accessible by super_admin role.
+ *
+ * Settings are stored as key-value pairs with optional encryption flag.
+ * Categories help organize settings (api_keys, casino, paygram, system, etc.)
+ */
+export const systemSettings = pgTable("system_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(), // e.g., "PAYGRAM_API_TOKEN", "CASINO_747_API_KEY"
+  value: text("value").notNull(), // The actual value (may be encrypted)
+  category: text("category").notNull().default("general"), // api_keys, casino, paygram, escrow, system
+  description: text("description"), // Human-readable description
+  isEncrypted: boolean("is_encrypted").notNull().default(false), // Whether value is encrypted
+  isActive: boolean("is_active").notNull().default(true), // Can disable without deleting
+  updatedBy: integer("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateSystemSettingSchema = z.object({
+  key: z.string().min(1),
+  value: z.string(),
+  description: z.string().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
+
+// ============================================================================
+// ESCROW CONFIGURATION
+// ============================================================================
+
+/**
+ * Escrow Accounts Configuration
+ *
+ * The super admin acts as the escrow for all transactions.
+ * This table tracks the casino agent accounts that are managed by the escrow.
+ */
+export const escrowAgents = pgTable("escrow_agents", {
+  id: serial("id").primaryKey(),
+  agentUsername: text("agent_username").notNull().unique(), // marcthepogi, teammarc, bossmarc747
+  agentType: text("agent_type").notNull().default("casino"), // casino, payment, etc.
+  isActive: boolean("is_active").notNull().default(true),
+  dailyLimit: decimal("daily_limit", { precision: 15, scale: 2 }), // Optional daily transaction limit
+  totalProcessed: decimal("total_processed", { precision: 15, scale: 2 }).notNull().default("0.00"),
+  lastActivityAt: timestamp("last_activity_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type EscrowAgent = typeof escrowAgents.$inferSelect;
 export type BalanceAdjustmentInput = z.infer<typeof balanceAdjustmentInputSchema>;
 
 // Manual P2P Deposit - Payment Methods managed by admin
@@ -489,3 +587,62 @@ export type VerifyPinInput = z.infer<typeof verifyPinSchema>;
 export type ChangePinInput = z.infer<typeof changePinSchema>;
 export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
+
+// User Bank/E-Wallet Accounts for manual withdrawals
+export const userBankAccounts = pgTable("user_bank_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  accountType: text("account_type").notNull(), // "gcash", "maya", "bank", "grabpay"
+  bankName: text("bank_name"), // For bank type: "BDO", "BPI", "Metrobank", etc.
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(), // Account holder name
+  isDefault: boolean("is_default").default(false),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUserBankAccountSchema = createInsertSchema(userBankAccounts).pick({
+  accountType: true,
+  bankName: true,
+  accountNumber: true,
+  accountName: true,
+});
+
+export type UserBankAccount = typeof userBankAccounts.$inferSelect;
+export type InsertUserBankAccount = z.infer<typeof insertUserBankAccountSchema>;
+
+// Manual Withdrawal Requests
+export const manualWithdrawalRequests = pgTable("manual_withdrawal_requests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  userBankAccountId: integer("user_bank_account_id").references(() => userBankAccounts.id).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  status: text("status").default("pending").notNull(), // pending, processing, completed, rejected
+  adminId: integer("admin_id").references(() => users.id),
+  adminNote: text("admin_note"),
+  rejectionReason: text("rejection_reason"),
+  phptTxId: text("phpt_tx_id"), // PayGram transaction ID for PHPT debit
+  processedAt: timestamp("processed_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertManualWithdrawalSchema = createInsertSchema(manualWithdrawalRequests).pick({
+  userBankAccountId: true,
+  amount: true,
+});
+
+export const processWithdrawalSchema = z.object({
+  adminNote: z.string().optional(),
+});
+
+export const rejectWithdrawalSchema = z.object({
+  rejectionReason: z.string().min(5, "Rejection reason must be at least 5 characters"),
+});
+
+export type ManualWithdrawalRequest = typeof manualWithdrawalRequests.$inferSelect;
+export type InsertManualWithdrawal = z.infer<typeof insertManualWithdrawalSchema>;
+export type ProcessWithdrawalInput = z.infer<typeof processWithdrawalSchema>;
+export type RejectWithdrawalInput = z.infer<typeof rejectWithdrawalSchema>;

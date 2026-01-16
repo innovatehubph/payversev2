@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowRight, Search, Shield, AlertTriangle } from "lucide-react";
+import { ArrowRight, Search, Shield, AlertTriangle, UserCheck } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { api, getAuthToken } from "@/lib/api";
@@ -80,7 +80,19 @@ export default function Transfer() {
       return;
     }
 
-    if (isLargeTransfer && securityStatus?.isLocked) {
+    // KYC check only for large transfers (5000+)
+    if (isLargeTransfer && user?.kycStatus !== "verified") {
+      toast({
+        title: "KYC Verification Required",
+        description: "Please complete your identity verification before making large transfers.",
+        variant: "destructive",
+      });
+      setLocation("/kyc");
+      return;
+    }
+
+    // PIN is required for ALL transactions
+    if (securityStatus?.isLocked) {
       toast({
         title: "PIN Locked",
         description: "Your PIN is temporarily locked due to too many failed attempts. Please try again later.",
@@ -88,19 +100,19 @@ export default function Transfer() {
       });
       return;
     }
-    
-    if (isLargeTransfer && securityStatus?.hasPinSet) {
-      setShowPinDialog(true);
-    } else if (isLargeTransfer && !securityStatus?.hasPinSet) {
+
+    if (!securityStatus?.hasPinSet) {
       toast({
         title: "PIN Required",
-        description: "Please set up your transaction PIN in Security settings before making large transfers.",
+        description: "Please set up your transaction PIN in Security settings before making transfers.",
         variant: "destructive",
       });
       setLocation("/security");
-    } else {
-      handleTransfer();
+      return;
     }
+
+    // Always show PIN dialog for all transactions
+    setShowPinDialog(true);
   };
 
   const handleVerifyPinAndTransfer = async () => {
@@ -113,46 +125,13 @@ export default function Transfer() {
       return;
     }
 
-    setPinVerifying(true);
-    try {
-      const token = getAuthToken();
-      const response = await fetch("/api/security/pin/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ pin })
-      });
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setShowPinDialog(false);
-        setPin("");
-        await handleTransfer();
-      } else {
-        toast({
-          title: "PIN Verification Failed",
-          description: data.message || "Invalid PIN",
-          variant: "destructive",
-        });
-        if (response.status === 423) {
-          setShowPinDialog(false);
-          setPin("");
-        }
-      }
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: "Failed to verify PIN",
-        variant: "destructive",
-      });
-    } finally {
-      setPinVerifying(false);
-    }
+    // Pass PIN directly to transfer API which validates it server-side
+    setShowPinDialog(false);
+    await handleTransfer(pin);
+    setPin("");
   };
 
-  const handleTransfer = async () => {
+  const handleTransfer = async (transferPin?: string) => {
     setLoading(true);
     setStep(3);
 
@@ -161,6 +140,7 @@ export default function Transfer() {
         receiverId: selectedUser.id,
         amount,
         note,
+        pin: transferPin,
       });
 
       await refreshUser();
@@ -282,14 +262,24 @@ export default function Transfer() {
               <span className="font-medium">{parseFloat(user?.phptBalance || "0").toLocaleString(undefined, { minimumFractionDigits: 2 })} PHPT</span>
             </div>
 
-            {isLargeTransfer && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                <Shield className="h-5 w-5 text-amber-600" />
-                <p className="text-sm text-amber-700 dark:text-amber-400">
-                  PIN verification required for transfers above ₱{LARGE_TRANSFER_THRESHOLD.toLocaleString()}
+            <div className="space-y-2">
+              {/* KYC warning only for large transfers */}
+              {isLargeTransfer && user?.kycStatus !== "verified" && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                  <UserCheck className="h-5 w-5 text-red-600" />
+                  <p className="text-sm text-red-700 dark:text-red-400">
+                    KYC verification required for transfers ₱{LARGE_TRANSFER_THRESHOLD.toLocaleString()}+. <a href="/kyc" className="underline font-medium">Complete verification</a>
+                  </p>
+                </div>
+              )}
+              {/* PIN info always shown */}
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                <Shield className="h-5 w-5 text-blue-600" />
+                <p className="text-sm text-blue-700 dark:text-blue-400">
+                  PIN verification required for all transactions
                 </p>
               </div>
-            )}
+            </div>
 
             <div className="pt-4">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold ml-1 mb-2 block">Note (Optional)</Label>
@@ -337,7 +327,7 @@ export default function Transfer() {
               PIN Verification Required
             </DialogTitle>
             <DialogDescription>
-              For your security, please enter your 6-digit PIN to authorize this large transfer of ₱{parseFloat(amount || "0").toLocaleString()}.
+              For your security, please enter your 6-digit PIN to authorize this transfer of ₱{parseFloat(amount || "0").toLocaleString()}.
             </DialogDescription>
           </DialogHeader>
           

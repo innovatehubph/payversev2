@@ -293,16 +293,15 @@ router.post("/admin/deposits/:id/approve", authMiddleware, adminMiddleware, admi
       adminNote: body.adminNote,
       paygramTxId: transferResult.transactionId || undefined,
     });
-    
-    await storage.createTransaction({
-      senderId: null,
-      receiverId: deposit.userId,
-      amount: deposit.amount,
+
+    // Use balanceService to credit local balance AND create transaction record atomically
+    const { balanceService } = await import("./balance-service");
+    await balanceService.creditFromPaygram({
+      userId: deposit.userId,
+      amount: amount,
       type: "manual_deposit",
-      status: "completed",
-      category: "Manual P2P Deposit",
       note: `Manual deposit approved by admin`,
-      walletType: "phpt",
+      paygramTxId: transferResult.transactionId,
     });
     
     const auditMeta = getAuditMetadata(req, "approve_deposit");
@@ -395,18 +394,17 @@ router.post("/admin/deposits/:id/retry", authMiddleware, adminMiddleware, adminR
       adminNote: "Successfully credited on retry",
       paygramTxId: transferResult.transactionId || undefined,
     });
-    
-    await storage.createTransaction({
-      senderId: null,
-      receiverId: deposit.userId,
-      amount: deposit.amount,
+
+    // Use balanceService to credit local balance AND create transaction record atomically
+    const { balanceService } = await import("./balance-service");
+    await balanceService.creditFromPaygram({
+      userId: deposit.userId,
+      amount: amount,
       type: "manual_deposit",
-      status: "completed",
-      category: "Manual P2P Deposit",
       note: `Manual deposit approved (retry)`,
-      walletType: "phpt",
+      paygramTxId: transferResult.transactionId,
     });
-    
+
     const auditMeta = getAuditMetadata(req, "approve_deposit");
     await storage.createAdminAuditLog({
       adminId: req.user!.id,

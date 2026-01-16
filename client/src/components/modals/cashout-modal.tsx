@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Smartphone, CreditCard, Upload, ArrowRight, Loader2, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
+import { Smartphone, CreditCard, Upload, ArrowRight, Loader2, CheckCircle, AlertCircle, ExternalLink, Building2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/lib/api";
 import { formatPeso, cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ interface EwalletSuccessData {
 
 export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [method, setMethod] = useState<CashOutMethod>(null);
   const [viewState, setViewState] = useState<ViewState>("method_select");
   const [amount, setAmount] = useState("");
@@ -194,8 +196,8 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
 
   const methodOptions = [
     { id: "telegram" as const, icon: Smartphone, label: "Telegram", description: "Withdraw to Telegram wallet", color: "bg-blue-500" },
-    { id: "ewallet" as const, icon: CreditCard, label: "eWallet / Bank", description: "GCash, Maya, GrabPay", color: "bg-green-500" },
-    { id: "manual" as const, icon: Upload, label: "Manual Request", description: "Request manual payout", color: "bg-purple-500" },
+    { id: "ewallet" as const, icon: CreditCard, label: "eWallet (Instant)", description: "GCash, Maya, GrabPay", color: "bg-green-500" },
+    { id: "manual" as const, icon: Building2, label: "Bank / Manual", description: "Request payout to saved accounts", color: "bg-purple-500" },
   ];
 
   const getTitle = () => {
@@ -490,14 +492,34 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
 
         {method === "manual" && (
           <div className="space-y-4 pt-4 text-center">
-            <AlertCircle className="h-16 w-16 text-yellow-500 mx-auto" />
-            <p className="font-medium">Manual Cash Out Request</p>
+            <Building2 className="h-16 w-16 text-purple-500 mx-auto" />
+            <p className="font-medium">Manual Cash Out to Bank/E-Wallet</p>
             <p className="text-sm text-muted-foreground">
-              For manual withdrawals, please contact support with your account details and withdrawal amount.
+              Request a manual withdrawal to your saved bank account or e-wallet. Admin will process your request.
             </p>
-            <Button variant="outline" onClick={handleClose} className="w-full">
-              Close
-            </Button>
+            <div className="space-y-2">
+              <Button
+                onClick={() => {
+                  handleClose();
+                  navigate("/manual-withdrawal");
+                }}
+                className="w-full bg-purple-600 hover:bg-purple-700"
+                data-testid="button-go-manual-withdrawal"
+              >
+                Go to Manual Withdrawal
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleClose();
+                  navigate("/bank-accounts");
+                }}
+                className="w-full"
+                data-testid="button-manage-bank-accounts"
+              >
+                Manage Bank Accounts
+              </Button>
+            </div>
           </div>
         )}
       </DialogContent>

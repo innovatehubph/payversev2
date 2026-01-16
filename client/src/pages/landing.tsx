@@ -37,26 +37,20 @@ const GlassCard = ({ children, className = "" }: { children: React.ReactNode; cl
 );
 
 export default function Landing() {
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
   const [_, setLocation] = useLocation();
   const { scrollYProgress } = useScroll();
   const heroOpacity = useTransform(scrollYProgress, [0, 0.3], [1, 0]);
   const heroScale = useTransform(scrollYProgress, [0, 0.3], [1, 0.95]);
 
+  // Redirect to dashboard if already logged in
   useEffect(() => {
-    if (!loading && user) {
+    if (user) {
       setLocation("/dashboard");
     }
-  }, [user, loading, setLocation]);
+  }, [user, setLocation]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
+  // If user is logged in, don't render landing (will redirect)
   if (user) return null;
 
   const features = [

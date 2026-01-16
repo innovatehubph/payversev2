@@ -10,12 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { 
-  Users, 
-  ArrowUpDown, 
-  Bitcoin, 
-  RefreshCw, 
-  Shield, 
+import {
+  Users,
+  ArrowUpDown,
+  Bitcoin,
+  RefreshCw,
+  Shield,
   TrendingUp,
   Send,
   Wallet,
@@ -36,8 +36,14 @@ import {
   Smartphone,
   FileText,
   Camera,
-  MapPin
+  MapPin,
+  Key,
+  Settings,
+  Home,
+  UserPlus,
+  FileSpreadsheet,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { getAuthToken } from "@/lib/api";
@@ -124,6 +130,7 @@ interface PendingQrphTransaction {
 
 export default function Admin() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -169,23 +176,27 @@ export default function Admin() {
   const [pendingQrph, setPendingQrph] = useState<PendingQrphTransaction[]>([]);
   const [processingQrph, setProcessingQrph] = useState<number | null>(null);
   const [processingAllQrph, setProcessingAllQrph] = useState(false);
-  const [directCreditingQrph, setDirectCreditingQrph] = useState<number | null>(null);
-  
-  
+  const [registeringPaygram, setRegisteringPaygram] = useState<number | null>(null);
+
+  // Manual Withdrawals state
+  const [pendingWithdrawals, setPendingWithdrawals] = useState<any[]>([]);
+  const [allWithdrawals, setAllWithdrawals] = useState<any[]>([]);
+  const [processingWithdrawal, setProcessingWithdrawal] = useState<number | null>(null);
+  const [withdrawalRejectReason, setWithdrawalRejectReason] = useState("");
+
   const { toast } = useToast();
 
   useEffect(() => {
     if (user?.isAdmin) {
       fetchAdminData();
-      
-      // Auto-refresh admin data every 60 seconds for real-time balance sync
-      // Only refresh when tab is visible to avoid unnecessary API calls
+
+      // Silent background refresh every 30 seconds (no loading indicators)
       const refreshInterval = setInterval(() => {
         if (!document.hidden) {
-          fetchAdminData();
+          fetchAdminData(true); // silent mode
         }
-      }, 60000);
-      
+      }, 30000);
+
       return () => clearInterval(refreshInterval);
     }
   }, [user]);
@@ -198,10 +209,10 @@ export default function Admin() {
     };
   };
 
-  const fetchAdminData = async () => {
-    setLoading(true);
+  const fetchAdminData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const [statsRes, usersRes, txRes, cryptoRes, kycRes, logsRes, adjRes, methodsRes, depositsRes, creditPendingRes, qrphRes] = await Promise.all([
+      const [statsRes, usersRes, txRes, cryptoRes, kycRes, logsRes, adjRes, methodsRes, depositsRes, creditPendingRes, qrphRes, withdrawalsRes] = await Promise.all([
         fetch("/api/admin/stats", { headers: getAuthHeaders() }),
         fetch("/api/admin/users", { headers: getAuthHeaders() }),
         fetch("/api/admin/transactions", { headers: getAuthHeaders() }),
@@ -212,9 +223,10 @@ export default function Admin() {
         fetch("/api/manual/admin/payment-methods", { headers: getAuthHeaders() }),
         fetch("/api/manual/admin/deposits/pending", { headers: getAuthHeaders() }),
         fetch("/api/manual/admin/deposits/credit-pending", { headers: getAuthHeaders() }),
-        fetch("/api/admin/qrph/pending", { headers: getAuthHeaders() })
+        fetch("/api/admin/qrph/pending", { headers: getAuthHeaders() }),
+        fetch("/api/manual/admin/withdrawals", { headers: getAuthHeaders() })
       ]);
-      
+
       if (statsRes.ok) setStats(await statsRes.json());
       if (usersRes.ok) setUsers(await usersRes.json());
       if (txRes.ok) setTransactions(await txRes.json());
@@ -225,7 +237,12 @@ export default function Admin() {
       if (depositsRes.ok) setPendingDeposits(await depositsRes.json());
       if (creditPendingRes.ok) setCreditPendingDeposits(await creditPendingRes.json());
       if (qrphRes.ok) setPendingQrph(await qrphRes.json());
-      
+      if (withdrawalsRes.ok) {
+        const withdrawals = await withdrawalsRes.json();
+        setAllWithdrawals(withdrawals);
+        setPendingWithdrawals(withdrawals.filter((w: any) => w.status === "pending" || w.status === "processing"));
+      }
+
       if (cryptoRes.ok) {
         setCrypto({ data: await cryptoRes.json(), error: null, configError: false });
       } else if (cryptoRes.status === 503) {
@@ -234,14 +251,16 @@ export default function Admin() {
         setCrypto({ data: null, error: "Failed to load crypto data", configError: false });
       }
     } catch (error) {
-      console.error("Failed to fetch admin data:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load admin data",
-        variant: "destructive"
-      });
+      if (!silent) {
+        console.error("Failed to fetch admin data:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load admin data",
+          variant: "destructive"
+        });
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -639,18 +658,41 @@ export default function Admin() {
     }
   };
 
-  const handleDirectCreditQrph = async (id: number) => {
-    setDirectCreditingQrph(id);
+  const handleRegisterPaygram = async (userId: number, username: string) => {
+    setRegisteringPaygram(userId);
     try {
-      const response = await fetch(`/api/admin/qrph/direct-credit/${id}`, {
+      const response = await fetch(`/api/admin/users/${userId}/register-paygram`, {
         method: "POST",
         headers: getAuthHeaders()
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
-        toast({ title: "Success", description: data.message });
+        toast({ title: "Success", description: `${username} registered on PayGram successfully` });
+      } else {
+        toast({ title: "Info", description: data.message || "User may already be registered on PayGram", variant: "default" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setRegisteringPaygram(null);
+    }
+  };
+
+  // Manual Withdrawal Handlers
+  const handleProcessWithdrawal = async (id: number) => {
+    setProcessingWithdrawal(id);
+    try {
+      const response = await fetch(`/api/manual/admin/withdrawals/${id}/process`, {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({ title: "Success", description: "Withdrawal marked as processing" });
         fetchAdminData();
       } else {
         toast({ title: "Error", description: data.message, variant: "destructive" });
@@ -658,7 +700,80 @@ export default function Admin() {
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
-      setDirectCreditingQrph(null);
+      setProcessingWithdrawal(null);
+    }
+  };
+
+  const handleCompleteWithdrawal = async (id: number) => {
+    setProcessingWithdrawal(id);
+    try {
+      const response = await fetch(`/api/manual/admin/withdrawals/${id}/complete`, {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({ title: "Success", description: "Withdrawal completed successfully" });
+        fetchAdminData();
+      } else {
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setProcessingWithdrawal(null);
+    }
+  };
+
+  const handleRejectWithdrawal = async (id: number) => {
+    if (!withdrawalRejectReason || withdrawalRejectReason.length < 5) {
+      toast({ title: "Error", description: "Please provide a reason (min 5 chars)", variant: "destructive" });
+      return;
+    }
+
+    setProcessingWithdrawal(id);
+    try {
+      const response = await fetch(`/api/manual/admin/withdrawals/${id}/reject`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ rejectionReason: withdrawalRejectReason })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({ title: "Success", description: "Withdrawal rejected and funds refunded" });
+        setWithdrawalRejectReason("");
+        fetchAdminData();
+      } else {
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setProcessingWithdrawal(null);
+    }
+  };
+
+  const getAccountTypeIcon = (type: string) => {
+    switch (type) {
+      case "gcash": return <Smartphone className="h-4 w-4 text-blue-500" />;
+      case "maya": return <Smartphone className="h-4 w-4 text-green-500" />;
+      case "grabpay": return <Smartphone className="h-4 w-4 text-emerald-500" />;
+      case "bank": return <Building2 className="h-4 w-4 text-slate-600" />;
+      default: return <Wallet className="h-4 w-4" />;
+    }
+  };
+
+  const getWithdrawalStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending": return <Badge variant="secondary">Pending</Badge>;
+      case "processing": return <Badge variant="default" className="bg-blue-500">Processing</Badge>;
+      case "completed": return <Badge variant="default" className="bg-green-500">Completed</Badge>;
+      case "rejected": return <Badge variant="destructive">Rejected</Badge>;
+      default: return <Badge variant="outline">{status}</Badge>;
     }
   };
 
@@ -722,10 +837,39 @@ export default function Admin() {
             {user?.role === "super_admin" && " • Full access to all features"}
           </p>
         </div>
-        <Button variant="outline" onClick={fetchAdminData} disabled={loading} data-testid="button-refresh-admin">
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => navigate("/dashboard")}
+            data-testid="button-admin-home"
+          >
+            <Home className="h-4 w-4 mr-2" />
+            Home
+          </Button>
+          {user?.role === "super_admin" && (
+            <Button
+              variant="default"
+              onClick={() => navigate("/admin/settings")}
+              className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700"
+              data-testid="button-system-settings"
+            >
+              <Key className="h-4 w-4 mr-2" />
+              System Settings
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={() => navigate("/admin/reports")}
+            data-testid="button-reports"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Reports
+          </Button>
+          <Button variant="outline" onClick={() => fetchAdminData()} disabled={loading} data-testid="button-refresh-admin">
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </header>
 
       {stats && (
@@ -854,6 +998,15 @@ export default function Admin() {
             <History className="h-4 w-4 mr-1" />
             <span className="hidden sm:inline">Logs</span>
           </TabsTrigger>
+          <TabsTrigger value="withdrawals" data-testid="tab-withdrawals">
+            <ArrowUpDown className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Withdrawals</span>
+            {pendingWithdrawals.length > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                {pendingWithdrawals.length}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -905,6 +1058,20 @@ export default function Admin() {
                           ≈ ₱{parseFloat(u.phptBalance || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                       </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleRegisterPaygram(u.id, u.username)}
+                        disabled={registeringPaygram === u.id}
+                        title="Register user on PayGram (use if balance not syncing)"
+                        data-testid={`button-register-paygram-${u.id}`}
+                      >
+                        {registeringPaygram === u.id ? (
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <UserPlus className="h-4 w-4" />
+                        )}
+                      </Button>
                       <div className="flex items-center gap-2">
                         <Label className="text-xs">Active</Label>
                         <Switch
@@ -1401,7 +1568,7 @@ export default function Admin() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={fetchAdminData}
+                    onClick={() => fetchAdminData()}
                     data-testid="button-refresh-qrph"
                   >
                     <RefreshCw className="h-4 w-4 mr-1" />
@@ -1464,27 +1631,13 @@ export default function Admin() {
                         <Button
                           size="sm"
                           onClick={() => handleProcessQrph(tx.id)}
-                          disabled={processingQrph === tx.id || directCreditingQrph === tx.id}
+                          disabled={processingQrph === tx.id}
                           data-testid={`button-process-qrph-${tx.id}`}
                         >
                           {processingQrph === tx.id ? (
                             <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Processing...</>
                           ) : (
                             <><CheckCircle className="h-4 w-4 mr-1" /> Credit PHPT</>
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDirectCreditQrph(tx.id)}
-                          disabled={processingQrph === tx.id || directCreditingQrph === tx.id}
-                          data-testid={`button-direct-credit-qrph-${tx.id}`}
-                          title="Credit directly to local balance (bypass PayGram)"
-                        >
-                          {directCreditingQrph === tx.id ? (
-                            <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Crediting...</>
-                          ) : (
-                            <><Wallet className="h-4 w-4 mr-1" /> Direct Credit</>
                           )}
                         </Button>
                       </div>
@@ -1510,10 +1663,7 @@ export default function Admin() {
                 If the automatic credit fails (due to PayGram API issues), transactions appear here for manual processing.
               </p>
               <p>
-                <strong>Credit PHPT:</strong> Transfers via PayGram API (requires admin PayGram balance).
-              </p>
-              <p>
-                <strong>Direct Credit:</strong> Credits the user's local balance directly (use when PayGram has insufficient balance or API issues).
+                <strong>Credit PHPT:</strong> Transfers PHPT from admin PayGram wallet to user's wallet and updates their balance.
               </p>
             </CardContent>
           </Card>
@@ -1688,6 +1838,248 @@ export default function Admin() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="withdrawals">
+          <div className="space-y-6">
+            {/* Pending Withdrawals */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-500" />
+                  Pending Withdrawals
+                  {pendingWithdrawals.filter(w => w.status === "pending").length > 0 && (
+                    <Badge variant="destructive">{pendingWithdrawals.filter(w => w.status === "pending").length}</Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>Manual withdrawal requests awaiting processing</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {pendingWithdrawals.filter(w => w.status === "pending").length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">No pending withdrawals</p>
+                  ) : (
+                    pendingWithdrawals.filter(w => w.status === "pending").map((withdrawal) => (
+                      <div key={withdrawal.id} className="p-4 rounded-lg border bg-yellow-50/50 border-yellow-200" data-testid={`withdrawal-pending-${withdrawal.id}`}>
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{withdrawal.userName || `User #${withdrawal.userId}`}</span>
+                              {getWithdrawalStatusBadge(withdrawal.status)}
+                            </div>
+                            <p className="text-2xl font-bold text-primary">
+                              ₱{parseFloat(withdrawal.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </p>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {getAccountTypeIcon(withdrawal.accountType)}
+                              <span className="font-medium uppercase">{withdrawal.accountType}</span>
+                              {withdrawal.bankName && <span>- {withdrawal.bankName}</span>}
+                            </div>
+                            <p className="text-sm">
+                              <span className="text-muted-foreground">Account:</span> {withdrawal.accountNumber}
+                            </p>
+                            <p className="text-sm">
+                              <span className="text-muted-foreground">Name:</span> {withdrawal.accountName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Requested: {new Date(withdrawal.createdAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="bg-blue-500 hover:bg-blue-600"
+                              onClick={() => handleProcessWithdrawal(withdrawal.id)}
+                              disabled={processingWithdrawal === withdrawal.id}
+                              data-testid={`button-process-withdrawal-${withdrawal.id}`}
+                            >
+                              {processingWithdrawal === withdrawal.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                "Processing"
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="bg-green-500 hover:bg-green-600"
+                              onClick={() => handleCompleteWithdrawal(withdrawal.id)}
+                              disabled={processingWithdrawal === withdrawal.id}
+                              data-testid={`button-complete-withdrawal-${withdrawal.id}`}
+                            >
+                              Complete
+                            </Button>
+                            <div className="flex flex-col gap-1">
+                              <Input
+                                placeholder="Reason..."
+                                value={withdrawalRejectReason}
+                                onChange={(e) => setWithdrawalRejectReason(e.target.value)}
+                                className="text-xs h-8"
+                                data-testid={`input-reject-reason-${withdrawal.id}`}
+                              />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleRejectWithdrawal(withdrawal.id)}
+                                disabled={processingWithdrawal === withdrawal.id || !withdrawalRejectReason}
+                                data-testid={`button-reject-withdrawal-${withdrawal.id}`}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Processing Withdrawals */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <RefreshCw className="h-5 w-5 text-blue-500" />
+                  Processing
+                  {pendingWithdrawals.filter(w => w.status === "processing").length > 0 && (
+                    <Badge variant="default" className="bg-blue-500">{pendingWithdrawals.filter(w => w.status === "processing").length}</Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>Withdrawals currently being processed</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {pendingWithdrawals.filter(w => w.status === "processing").length === 0 ? (
+                    <p className="text-muted-foreground text-center py-4">No withdrawals in processing</p>
+                  ) : (
+                    pendingWithdrawals.filter(w => w.status === "processing").map((withdrawal) => (
+                      <div key={withdrawal.id} className="p-4 rounded-lg border bg-blue-50/50 border-blue-200" data-testid={`withdrawal-processing-${withdrawal.id}`}>
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{withdrawal.userName || `User #${withdrawal.userId}`}</span>
+                              {getWithdrawalStatusBadge(withdrawal.status)}
+                            </div>
+                            <p className="text-2xl font-bold text-primary">
+                              ₱{parseFloat(withdrawal.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </p>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {getAccountTypeIcon(withdrawal.accountType)}
+                              <span className="font-medium uppercase">{withdrawal.accountType}</span>
+                              {withdrawal.bankName && <span>- {withdrawal.bankName}</span>}
+                            </div>
+                            <p className="text-sm">
+                              <span className="text-muted-foreground">Account:</span> {withdrawal.accountNumber}
+                            </p>
+                            <p className="text-sm">
+                              <span className="text-muted-foreground">Name:</span> {withdrawal.accountName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Started: {withdrawal.processedAt ? new Date(withdrawal.processedAt).toLocaleString() : "N/A"}
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="bg-green-500 hover:bg-green-600"
+                              onClick={() => handleCompleteWithdrawal(withdrawal.id)}
+                              disabled={processingWithdrawal === withdrawal.id}
+                              data-testid={`button-complete-processing-${withdrawal.id}`}
+                            >
+                              {processingWithdrawal === withdrawal.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                "Complete"
+                              )}
+                            </Button>
+                            <div className="flex flex-col gap-1">
+                              <Input
+                                placeholder="Reason..."
+                                value={withdrawalRejectReason}
+                                onChange={(e) => setWithdrawalRejectReason(e.target.value)}
+                                className="text-xs h-8"
+                              />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleRejectWithdrawal(withdrawal.id)}
+                                disabled={processingWithdrawal === withdrawal.id || !withdrawalRejectReason}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Completed/Rejected Withdrawals History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <History className="h-5 w-5" />
+                  Withdrawal History
+                </CardTitle>
+                <CardDescription>Recently completed and rejected withdrawals</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {allWithdrawals.filter(w => w.status === "completed" || w.status === "rejected").length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">No withdrawal history</p>
+                  ) : (
+                    allWithdrawals
+                      .filter(w => w.status === "completed" || w.status === "rejected")
+                      .sort((a, b) => new Date(b.completedAt || b.updatedAt).getTime() - new Date(a.completedAt || a.updatedAt).getTime())
+                      .slice(0, 50)
+                      .map((withdrawal) => (
+                        <div
+                          key={withdrawal.id}
+                          className={`p-3 rounded-lg border text-sm ${
+                            withdrawal.status === "completed" ? "bg-green-50/50 border-green-200" : "bg-red-50/50 border-red-200"
+                          }`}
+                          data-testid={`withdrawal-history-${withdrawal.id}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{withdrawal.userName || `User #${withdrawal.userId}`}</span>
+                                {getWithdrawalStatusBadge(withdrawal.status)}
+                              </div>
+                              <p className="font-bold">
+                                ₱{parseFloat(withdrawal.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                {getAccountTypeIcon(withdrawal.accountType)}
+                                <span className="uppercase">{withdrawal.accountType}</span>
+                                {withdrawal.bankName && <span>- {withdrawal.bankName}</span>}
+                                <span>•</span>
+                                <span>{withdrawal.accountNumber}</span>
+                              </div>
+                              {withdrawal.rejectionReason && (
+                                <p className="text-xs text-red-600">
+                                  Reason: {withdrawal.rejectionReason}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right text-xs text-muted-foreground">
+                              <p>{new Date(withdrawal.completedAt || withdrawal.updatedAt).toLocaleString()}</p>
+                              {withdrawal.adminId && <p>Admin #{withdrawal.adminId}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
 

@@ -71,7 +71,7 @@ export default function Security() {
       const response = await fetch("/api/security/pin/setup", {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ pin: setupPin })
+        body: JSON.stringify({ pin: setupPin, confirmPin: confirmPin })
       });
       const data = await response.json();
       
