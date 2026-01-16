@@ -104,6 +104,7 @@ export interface IStorage {
   // PIN Management
   updateUserPin(userId: number, pinHash: string): Promise<void>;
   updateUserPinAttempts(userId: number, attempts: number, lockedUntil: Date | null): Promise<void>;
+  clearUserPin(userId: number): Promise<void>;
   updateUserPassword(userId: number, hashedPassword: string): Promise<void>;
   updateUserLastLogin(userId: number, ipAddress: string | null): Promise<void>;
   
@@ -1209,9 +1210,20 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserPinAttempts(userId: number, attempts: number, lockedUntil: Date | null): Promise<void> {
     await db.update(users)
-      .set({ 
+      .set({
         pinFailedAttempts: attempts,
         pinLockedUntil: lockedUntil
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async clearUserPin(userId: number): Promise<void> {
+    await db.update(users)
+      .set({
+        pinHash: null,
+        pinUpdatedAt: null,
+        pinFailedAttempts: 0,
+        pinLockedUntil: null
       })
       .where(eq(users.id, userId));
   }

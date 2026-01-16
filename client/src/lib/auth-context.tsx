@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { api, getAuthToken, clearAuthToken } from './api';
 import { useLocation } from 'wouter';
+import { initSocket, disconnectSocket, onBalanceUpdate } from './socket';
 
 interface User {
   id: number;
@@ -55,6 +56,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
+  // Initialize WebSocket and listen for balance updates when user is logged in
+  useEffect(() => {
+    if (!user) {
+      disconnectSocket();
+      return;
+    }
+
+    // Initialize socket connection
+    initSocket(user.id);
+
+    // Subscribe to balance updates
+    const unsubscribe = onBalanceUpdate((balanceData) => {
+      console.log("[AuthContext] Balance update received:", balanceData);
+      setUser((prevUser) => {
+        if (!prevUser) return null;
+        return {
+          ...prevUser,
+          balance: balanceData.totalBalance,
+          phptBalance: balanceData.phptBalance,
+        };
+      });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id]);
+
   const login = async (email: string, password: string) => {
     const { user } = await api.auth.login({ email, password });
     setUser(user);
@@ -69,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await api.auth.logout();
+    disconnectSocket();
     setUser(null);
     // Force full page reload to show preloader and landing page
     window.location.href = '/';

@@ -318,6 +318,8 @@ export default function QRPH() {
     const amount = parseFloat(cashoutAmount);
 
     setCashoutLoading(true);
+    let shouldCloseDialog = true; // Track whether to close dialog
+
     try {
       const response = await fetch("/api/nexuspay/cashout", {
         method: "POST",
@@ -361,7 +363,7 @@ export default function QRPH() {
         } else if (data.attemptsRemaining !== undefined) {
           toast({ title: "Invalid PIN", description: data.message, variant: "destructive" });
           setCashoutPin(""); // Clear PIN for retry
-          return; // Don't close dialog on invalid PIN
+          shouldCloseDialog = false; // Keep dialog open for retry
         } else {
           toast({
             title: "Payout Failed",
@@ -378,8 +380,10 @@ export default function QRPH() {
       });
     } finally {
       setCashoutLoading(false);
-      setShowCashoutPinDialog(false);
-      setCashoutPin("");
+      if (shouldCloseDialog) {
+        setShowCashoutPinDialog(false);
+        setCashoutPin("");
+      }
     }
   };
 

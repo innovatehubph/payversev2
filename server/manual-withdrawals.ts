@@ -1,5 +1,4 @@
 import { Express, Request, Response } from "express";
-import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { authMiddleware } from "./auth";
 import { adminRateLimiter, sensitiveActionRateLimiter } from "./admin";
@@ -7,6 +6,7 @@ import { transferToAdminWallet, transferFromAdminWallet, getUserPhptBalance } fr
 import { broadcastWithdrawalUpdate, broadcastNewWithdrawal } from "./websocket";
 import { insertUserBankAccountSchema, insertManualWithdrawalSchema, processWithdrawalSchema, rejectWithdrawalSchema } from "@shared/schema";
 import { ZodError } from "zod";
+import { verifyUserPin } from "./utils";
 
 export function registerManualWithdrawalRoutes(app: Express) {
   // ==================== User Bank Account Endpoints ====================
@@ -140,60 +140,18 @@ export function registerManualWithdrawalRoutes(app: Express) {
         return res.status(401).json({ success: false, message: "User not found" });
       }
 
-      // PIN verification
-      if (!user.pinHash) {
-        return res.status(400).json({
+      // Use centralized PIN verification
+      const pinResult = await verifyUserPin(user, pin, storage.updateUserPinAttempts.bind(storage));
+      if (!pinResult.success) {
+        return res.status(pinResult.statusCode).json({
           success: false,
-          message: "PIN required. Please set up your PIN in Security settings first.",
-          requiresPin: true,
-          needsPinSetup: true
+          message: pinResult.message,
+          requiresPin: pinResult.requiresPin,
+          needsPinSetup: pinResult.needsPinSetup,
+          lockedUntil: pinResult.lockedUntil,
+          attemptsRemaining: pinResult.attemptsRemaining
         });
       }
-
-      if (!pin) {
-        return res.status(400).json({
-          success: false,
-          message: "PIN required for withdrawal",
-          requiresPin: true
-        });
-      }
-
-      // Check PIN lockout
-      if (user.pinLockedUntil && new Date(user.pinLockedUntil) > new Date()) {
-        const remainingMinutes = Math.ceil((new Date(user.pinLockedUntil).getTime() - Date.now()) / 60000);
-        return res.status(423).json({
-          success: false,
-          message: `PIN locked. Try again in ${remainingMinutes} minutes.`,
-          lockedUntil: user.pinLockedUntil
-        });
-      }
-
-      // Verify PIN
-      const isValidPin = await bcrypt.compare(pin, user.pinHash);
-      if (!isValidPin) {
-        const newAttempts = (user.pinFailedAttempts || 0) + 1;
-        const maxAttempts = 5;
-
-        if (newAttempts >= maxAttempts) {
-          const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
-          await storage.updateUserPinAttempts(user.id, newAttempts, lockUntil);
-          return res.status(423).json({
-            success: false,
-            message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
-            lockedUntil: lockUntil
-          });
-        }
-
-        await storage.updateUserPinAttempts(user.id, newAttempts, null);
-        return res.status(401).json({
-          success: false,
-          message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
-          attemptsRemaining: maxAttempts - newAttempts
-        });
-      }
-
-      // Reset failed attempts
-      await storage.updateUserPinAttempts(user.id, 0, null);
 
       // Check PHPT balance
       const userCliId = user.username || user.email;

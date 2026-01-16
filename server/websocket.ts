@@ -78,6 +78,15 @@ export function broadcastNewWithdrawal(withdrawal: any) {
   emitToAdmins("admin:withdrawal:new", withdrawal);
 }
 
+// Broadcast balance update to a specific user
+export function broadcastBalanceUpdate(userId: number, balanceData: {
+  phptBalance: string;
+  fiatBalance: string;
+  totalBalance: string;
+}) {
+  emitToUser(userId, "balance:updated", balanceData);
+}
+
 // Get Socket.IO server instance
 export function getIO(): SocketServer | null {
   return io;

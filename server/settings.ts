@@ -418,6 +418,45 @@ export function registerSettingsRoutes(app: Express, authMiddleware: any) {
     }
   });
 
+  // Test email endpoint - sends a test email to verify SMTP configuration
+  app.post("/api/admin/settings/test-email", authMiddleware, superAdminOnly, async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email address is required" });
+      }
+
+      // Import sendTestEmail dynamically to avoid circular dependencies
+      const { sendTestEmail, clearEmailTransporter } = await import("./email");
+
+      // Clear both the settings cache and transporter cache to force reload
+      clearSettingsCache();
+      clearEmailTransporter();
+
+      console.log(`[Settings] Sending test email to ${email}`);
+      const success = await sendTestEmail(email, req.user!.fullName || "Admin");
+
+      if (success) {
+        res.json({
+          success: true,
+          message: `Test email sent successfully to ${email}`
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          message: "Failed to send test email. Please check SMTP settings."
+        });
+      }
+    } catch (error: any) {
+      console.error("[Settings] Test email error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to send test email"
+      });
+    }
+  });
+
   console.log("[Settings] Super admin settings routes registered");
 }
 

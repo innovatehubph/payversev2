@@ -20,7 +20,7 @@ import { seedAdminAccount } from "./seed";
 import { sessions, generateSessionToken, authMiddleware } from "./auth";
 import { initializeEmailTransporter, sendWelcomeEmail, sendTransferReceivedEmail, sendTransferSentEmail } from "./email";
 import { setupSwagger } from "./swagger";
-import { sanitizeUser } from "./utils";
+import { sanitizeUser, verifyUserPin } from "./utils";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -331,55 +331,17 @@ export async function registerRoutes(
         }
       }
 
-      // PIN verification required for ALL transactions
-      if (!sender.pinHash) {
-        return res.status(400).json({
-          message: "PIN required for transfers. Please set up your PIN first.",
-          requiresPin: true,
-          needsPinSetup: true
+      // Use centralized PIN verification
+      const pinResult = await verifyUserPin(sender, pin, storage.updateUserPinAttempts.bind(storage));
+      if (!pinResult.success) {
+        return res.status(pinResult.statusCode).json({
+          message: pinResult.message,
+          requiresPin: pinResult.requiresPin,
+          needsPinSetup: pinResult.needsPinSetup,
+          lockedUntil: pinResult.lockedUntil,
+          attemptsRemaining: pinResult.attemptsRemaining
         });
       }
-
-      if (!pin) {
-        return res.status(400).json({
-          message: "PIN required for all transfers",
-          requiresPin: true
-        });
-      }
-
-      // Check lockout
-      if (sender.pinLockedUntil && new Date(sender.pinLockedUntil) > new Date()) {
-        const remainingMinutes = Math.ceil((new Date(sender.pinLockedUntil).getTime() - Date.now()) / 60000);
-        return res.status(423).json({
-          message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
-          lockedUntil: sender.pinLockedUntil
-        });
-      }
-
-      // Verify PIN
-      const isValidPin = await bcrypt.compare(pin, sender.pinHash);
-      if (!isValidPin) {
-        const newAttempts = (sender.pinFailedAttempts || 0) + 1;
-        const maxAttempts = 5;
-
-        if (newAttempts >= maxAttempts) {
-          const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
-          await storage.updateUserPinAttempts(sender.id, newAttempts, lockUntil);
-          return res.status(423).json({
-            message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
-            lockedUntil: lockUntil
-          });
-        }
-
-        await storage.updateUserPinAttempts(sender.id, newAttempts, null);
-        return res.status(401).json({
-          message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
-          attemptsRemaining: maxAttempts - newAttempts
-        });
-      }
-
-      // Reset failed attempts on success
-      await storage.updateUserPinAttempts(sender.id, 0, null);
 
       // Get PayGram API token from system settings or env
       const sharedToken = await getSystemSetting("PAYGRAM_API_TOKEN", "");

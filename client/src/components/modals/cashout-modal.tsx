@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Smartphone, CreditCard, Upload, ArrowRight, Loader2, CheckCircle, AlertCircle, ExternalLink, Building2 } from "lucide-react";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { Smartphone, CreditCard, Upload, ArrowRight, Loader2, CheckCircle, AlertCircle, ExternalLink, Building2, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/lib/api";
 import { formatPeso, cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [provider, setProvider] = useState("gcash");
+  const [pin, setPin] = useState("");
 
   const [telegramSuccess, setTelegramSuccess] = useState<TelegramSuccessData | null>(null);
   const [ewalletSuccess, setEwalletSuccess] = useState<EwalletSuccessData | null>(null);
@@ -85,6 +87,7 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
     setAccountNumber("");
     setAccountName("");
     setProvider("gcash");
+    setPin("");
     setTelegramSuccess(null);
     setEwalletSuccess(null);
   };
@@ -113,13 +116,18 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
   };
 
   const handleTelegramCashOut = async () => {
+    if (pin.length !== 6) {
+      toast({ title: "PIN Required", description: "Please enter your 6-digit PIN", variant: "destructive" });
+      return;
+    }
+
     const amt = parseFloat(amount);
     setLoading(true);
     try {
       const response = await fetch("/api/crypto/cashout", {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ amount: amt })
+        body: JSON.stringify({ amount: amt, pin })
       });
       const data = await response.json();
       if (data.success) {
@@ -129,9 +137,21 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
           isInstant: data.status === "completed"
         });
         setViewState("success");
+        setPin("");
         fetchBalance();
       } else {
-        toast({ title: "Withdrawal Failed", description: data.message || "Please try again", variant: "destructive" });
+        // Handle PIN-specific errors
+        if (data.requiresPin && data.needsPinSetup) {
+          toast({ title: "PIN Required", description: "Please set up your PIN in Security settings first.", variant: "destructive" });
+        } else if (data.lockedUntil) {
+          toast({ title: "PIN Locked", description: data.message, variant: "destructive" });
+        } else if (data.attemptsRemaining !== undefined) {
+          toast({ title: "Invalid PIN", description: data.message, variant: "destructive" });
+          setPin(""); // Clear PIN for retry
+          return; // Don't change view state
+        } else {
+          toast({ title: "Withdrawal Failed", description: data.message || "Please try again", variant: "destructive" });
+        }
         setViewState("input");
       }
     } catch (error: any) {
@@ -164,6 +184,11 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
   };
 
   const handleEWalletCashOut = async () => {
+    if (pin.length !== 6) {
+      toast({ title: "PIN Required", description: "Please enter your 6-digit PIN", variant: "destructive" });
+      return;
+    }
+
     const amt = parseFloat(amount);
     setLoading(true);
     try {
@@ -174,16 +199,29 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
           amount: amt,
           accountNumber,
           accountName,
-          provider
+          provider,
+          pin
         })
       });
       const data = await response.json();
       if (data.success) {
         setEwalletSuccess({ amount: amt, provider, accountNumber });
         setViewState("success");
+        setPin("");
         fetchBalance();
       } else {
-        toast({ title: "Cash Out Failed", description: data.message || "Please try again", variant: "destructive" });
+        // Handle PIN-specific errors
+        if (data.requiresPin && data.needsPinSetup) {
+          toast({ title: "PIN Required", description: "Please set up your PIN in Security settings first.", variant: "destructive" });
+        } else if (data.lockedUntil) {
+          toast({ title: "PIN Locked", description: data.message, variant: "destructive" });
+        } else if (data.attemptsRemaining !== undefined) {
+          toast({ title: "Invalid PIN", description: data.message, variant: "destructive" });
+          setPin(""); // Clear PIN for retry
+          return; // Don't change view state
+        } else {
+          toast({ title: "Cash Out Failed", description: data.message || "Please try again", variant: "destructive" });
+        }
         setViewState("input");
       }
     } catch (error: any) {
@@ -309,18 +347,39 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
                 </div>
               </div>
             </div>
+
+            {/* PIN Input */}
+            <div className="p-4 rounded-xl bg-secondary/30 border">
+              <div className="flex items-center gap-2 mb-3">
+                <Lock className="h-4 w-4 text-primary" />
+                <p className="text-sm font-medium">Enter your 6-digit PIN</p>
+              </div>
+              <div className="flex justify-center">
+                <InputOTP maxLength={6} value={pin} onChange={setPin}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} className="h-11 w-10" mask />
+                    <InputOTPSlot index={1} className="h-11 w-10" mask />
+                    <InputOTPSlot index={2} className="h-11 w-10" mask />
+                    <InputOTPSlot index={3} className="h-11 w-10" mask />
+                    <InputOTPSlot index={4} className="h-11 w-10" mask />
+                    <InputOTPSlot index={5} className="h-11 w-10" mask />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            </div>
+
             <div className="flex gap-2">
-              <Button 
+              <Button
                 variant="outline"
-                onClick={() => setViewState("input")} 
+                onClick={() => { setViewState("input"); setPin(""); }}
                 disabled={loading}
                 className="flex-1"
               >
                 Back
               </Button>
-              <Button 
-                onClick={handleTelegramCashOut} 
-                disabled={loading}
+              <Button
+                onClick={handleTelegramCashOut}
+                disabled={loading || pin.length !== 6}
                 className="flex-1 bg-blue-500 hover:bg-blue-600"
                 data-testid="button-confirm-cashout"
               >
@@ -450,18 +509,39 @@ export function CashOutModal({ open, onOpenChange }: CashOutModalProps) {
                 </div>
               </div>
             </div>
+
+            {/* PIN Input */}
+            <div className="p-4 rounded-xl bg-secondary/30 border">
+              <div className="flex items-center gap-2 mb-3">
+                <Lock className="h-4 w-4 text-primary" />
+                <p className="text-sm font-medium">Enter your 6-digit PIN</p>
+              </div>
+              <div className="flex justify-center">
+                <InputOTP maxLength={6} value={pin} onChange={setPin}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} className="h-11 w-10" mask />
+                    <InputOTPSlot index={1} className="h-11 w-10" mask />
+                    <InputOTPSlot index={2} className="h-11 w-10" mask />
+                    <InputOTPSlot index={3} className="h-11 w-10" mask />
+                    <InputOTPSlot index={4} className="h-11 w-10" mask />
+                    <InputOTPSlot index={5} className="h-11 w-10" mask />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+            </div>
+
             <div className="flex gap-2">
-              <Button 
+              <Button
                 variant="outline"
-                onClick={() => setViewState("input")} 
+                onClick={() => { setViewState("input"); setPin(""); }}
                 disabled={loading}
                 className="flex-1"
               >
                 Back
               </Button>
-              <Button 
-                onClick={handleEWalletCashOut} 
-                disabled={loading}
+              <Button
+                onClick={handleEWalletCashOut}
+                disabled={loading || pin.length !== 6}
                 className="flex-1 bg-green-600 hover:bg-green-700"
                 data-testid="button-confirm-ewallet"
               >

@@ -169,37 +169,33 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Quick Action Buttons - Top Up/Cash Out hidden for super admin (escrow account), Send allowed */}
-            <div className={`grid ${user?.role === "super_admin" ? "grid-cols-2" : "grid-cols-3"} gap-3`}>
+            {/* Quick Action Buttons - All users get Send, Top Up, Cash Out. Super admin also gets Admin Panel */}
+            <div className={`grid ${user?.role === "super_admin" ? "grid-cols-4" : "grid-cols-3"} gap-3`}>
               <Link href="/send">
                 <Button className="w-full bg-white text-primary hover:bg-white/90 border-0 shadow-lg shadow-black/10 font-medium h-12" data-testid="button-send">
                   <Send className="mr-2 h-4 w-4" /> Send
                 </Button>
               </Link>
-              {user?.role !== "super_admin" && (
-                <>
-                  <Button
-                    variant="outline"
-                    className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium h-12"
-                    onClick={openTopUp}
-                    data-testid="button-topup"
-                  >
-                    <ArrowDownLeft className="mr-2 h-4 w-4" /> Top Up
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium h-12"
-                    onClick={openCashOut}
-                    data-testid="button-cashout"
-                  >
-                    <ArrowUpRight className="mr-2 h-4 w-4" /> Cash Out
-                  </Button>
-                </>
-              )}
+              <Button
+                variant="outline"
+                className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium h-12"
+                onClick={openTopUp}
+                data-testid="button-topup"
+              >
+                <ArrowDownLeft className="mr-2 h-4 w-4" /> Top Up
+              </Button>
+              <Button
+                variant="outline"
+                className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium h-12"
+                onClick={openCashOut}
+                data-testid="button-cashout"
+              >
+                <ArrowUpRight className="mr-2 h-4 w-4" /> Cash Out
+              </Button>
               {user?.role === "super_admin" && (
                 <Link href="/admin">
                   <Button className="w-full bg-white/20 text-white hover:bg-white/30 border-0 font-medium h-12" data-testid="button-admin">
-                    Admin Panel
+                    Admin
                   </Button>
                 </Link>
               )}

@@ -1,9 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "./storage";
 import { ZodError, z } from "zod";
+import bcrypt from "bcrypt";
 import { authMiddleware } from "./auth";
 import { encrypt, decrypt } from "./encryption";
-import { generateRequestId } from "./utils";
+import { generateRequestId, verifyUserPin } from "./utils";
 import { getSystemSetting } from "./settings";
 
 export const PAYGRAM_API_URL = "https://api.pay-gram.org";
@@ -378,22 +379,35 @@ export function registerPaygramRoutes(app: Express) {
   app.get("/api/crypto/status", authMiddleware, async (req: Request, res: Response) => {
     const sharedToken = await getSharedPaygramToken();
     if (!sharedToken) {
-      return res.json({ 
+      return res.json({
         connected: false,
         message: "PayGram integration not configured. Contact administrator.",
         code: "PAYGRAM_NOT_CONFIGURED"
       });
     }
-    
+
+    // Super admin uses ADMIN_TGIN_TOKEN - check if it's configured
+    const isSuperAdmin = req.user!.role === "super_admin";
+    if (isSuperAdmin) {
+      const adminTginToken = await getSystemSetting("ADMIN_TGIN_TOKEN", "");
+      return res.json({
+        connected: !!adminTginToken,
+        userCliId: getUserCliId(req.user!),
+        isValid: !!adminTginToken,
+        message: adminTginToken ? "Admin Telegram connected" : "Configure ADMIN_TGIN_TOKEN in System Settings"
+      });
+    }
+
+    // Regular users - check personal connection
     const connection = await storage.getPaygramConnection(req.user!.id);
-    
+
     if (!connection) {
-      return res.json({ 
+      return res.json({
         connected: false,
         message: "Connect your Telegram PayGram token to access crypto features"
       });
     }
-    
+
     return res.json({
       connected: true,
       userCliId: getUserCliId(req.user!),
@@ -820,14 +834,29 @@ export function registerPaygramRoutes(app: Express) {
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
-    
-    // Get user's Telegram token - required for paying from Telegram wallet
-    const telegramToken = await getDecryptedTelegramToken(req.user!.id);
-    if (!telegramToken) {
-      return res.status(409).json({ 
-        message: "Telegram wallet not connected. Please connect your PayGram Telegram token in Profile settings first.", 
-        code: "TELEGRAM_NOT_CONNECTED" 
-      });
+
+    // Get Telegram token - for super_admin use ADMIN_TGIN_TOKEN from system settings
+    let telegramToken: string | null = null;
+    const isSuperAdmin = req.user!.role === "super_admin";
+
+    if (isSuperAdmin) {
+      // Super admin uses the ADMIN_TGIN_TOKEN for escrow operations
+      telegramToken = await getSystemSetting("ADMIN_TGIN_TOKEN", "");
+      if (!telegramToken) {
+        return res.status(409).json({
+          message: "Admin Telegram token not configured. Please add ADMIN_TGIN_TOKEN in System Settings.",
+          code: "ADMIN_TGIN_NOT_CONFIGURED"
+        });
+      }
+    } else {
+      // Regular users use their personal token
+      telegramToken = await getDecryptedTelegramToken(req.user!.id);
+      if (!telegramToken) {
+        return res.status(409).json({
+          message: "Telegram wallet not connected. Please connect your PayGram Telegram token in Profile settings first.",
+          code: "TELEGRAM_NOT_CONNECTED"
+        });
+      }
     }
     
     try {
@@ -1478,30 +1507,68 @@ export function registerPaygramRoutes(app: Express) {
     if (!sharedToken) {
       return res.status(503).json({ message: "PayGram not configured", code: "PAYGRAM_NOT_CONFIGURED" });
     }
-    
-    const connection = await storage.getPaygramConnection(req.user!.id);
-    if (!connection) {
-      return res.status(409).json({ message: "Wallet not connected", code: "WALLET_NOT_CONNECTED" });
+
+    const isSuperAdmin = req.user!.role === "super_admin";
+
+    // For regular users, check wallet connection
+    if (!isSuperAdmin) {
+      const connection = await storage.getPaygramConnection(req.user!.id);
+      if (!connection) {
+        return res.status(409).json({ message: "Wallet not connected", code: "WALLET_NOT_CONNECTED" });
+      }
     }
-    
+
     try {
-      const { amount } = req.body;
+      const { amount, pin } = req.body;
       const withdrawAmount = parseFloat(amount);
-      
+
+      // PIN verification required for cashout (all users including super admin)
+      const fullUser = await storage.getUser(req.user!.id);
+      if (!fullUser) {
+        return res.status(401).json({ success: false, message: "User not found" });
+      }
+
+      // Use centralized PIN verification
+      const pinResult = await verifyUserPin(fullUser, pin, storage.updateUserPinAttempts.bind(storage));
+      if (!pinResult.success) {
+        return res.status(pinResult.statusCode).json({
+          success: false,
+          message: pinResult.message,
+          requiresPin: pinResult.requiresPin,
+          needsPinSetup: pinResult.needsPinSetup,
+          lockedUntil: pinResult.lockedUntil,
+          attemptsRemaining: pinResult.attemptsRemaining
+        });
+      }
+
       if (isNaN(withdrawAmount) || withdrawAmount < 1) {
         return res.status(400).json({ success: false, message: "Minimum withdrawal is 1 PHPT" });
       }
-      
+
       const userCliId = getUserCliId(req.user!);
-      
-      // Decrypt user's Telegram token
+
+      // Get Telegram token - for super_admin use ADMIN_TGIN_TOKEN from system settings
       let telegramToken: string | null = null;
-      try {
-        telegramToken = decrypt(connection.apiToken);
-      } catch (e) {
-        console.error("[Cashout] Failed to decrypt Telegram token:", e);
+
+      if (isSuperAdmin) {
+        // Super admin uses the ADMIN_TGIN_TOKEN for escrow operations
+        telegramToken = await getSystemSetting("ADMIN_TGIN_TOKEN", "");
+        if (!telegramToken) {
+          return res.status(409).json({
+            message: "Admin Telegram token not configured. Please add ADMIN_TGIN_TOKEN in System Settings.",
+            code: "ADMIN_TGIN_NOT_CONFIGURED"
+          });
+        }
+      } else {
+        // Regular users - decrypt their Telegram token
+        const connection = await storage.getPaygramConnection(req.user!.id);
+        try {
+          telegramToken = connection ? decrypt(connection.apiToken) : null;
+        } catch (e) {
+          console.error("[Cashout] Failed to decrypt Telegram token:", e);
+        }
       }
-      
+
       // If no Telegram token, fall back to link-based approach
       if (!telegramToken) {
         console.log(`[Cashout] No Telegram token for user ${userCliId}, using link fallback`);

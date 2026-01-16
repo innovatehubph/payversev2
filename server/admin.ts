@@ -479,6 +479,124 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Get PIN status for a user (admin view)
+  app.get("/api/admin/users/:id/pin-status", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const isLocked = user.pinLockedUntil && new Date(user.pinLockedUntil) > new Date();
+      const remainingMinutes = isLocked
+        ? Math.ceil((new Date(user.pinLockedUntil!).getTime() - Date.now()) / 60000)
+        : 0;
+
+      res.json({
+        success: true,
+        userId: user.id,
+        email: user.email,
+        hasPinSet: !!user.pinHash,
+        failedAttempts: user.pinFailedAttempts || 0,
+        isLocked,
+        lockedUntil: user.pinLockedUntil,
+        remainingMinutes,
+      });
+    } catch (error: any) {
+      console.error("Admin get PIN status error:", error);
+      res.status(500).json({ success: false, message: "Failed to get PIN status" });
+    }
+  });
+
+  // Unlock a user's PIN (reset failed attempts and clear lock)
+  app.post("/api/admin/users/:id/unlock-pin", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      // Reset failed attempts and clear lock
+      await storage.updateUserPinAttempts(userId, 0, null);
+
+      // Create audit log
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "pin_unlock",
+        targetType: "user",
+        targetId: userId,
+        details: JSON.stringify({
+          previousFailedAttempts: user.pinFailedAttempts,
+          previousLockedUntil: user.pinLockedUntil,
+        }),
+        ipAddress: getClientIp(req),
+        userAgent: req.headers["user-agent"] || null,
+        sessionId: req.headers.authorization?.replace("Bearer ", "") || null,
+        requestMethod: req.method,
+        requestPath: req.path,
+        riskLevel: "medium"
+      });
+
+      console.log(`[Admin] User ${req.user!.id} unlocked PIN for user ${userId}`);
+
+      res.json({
+        success: true,
+        message: `PIN unlocked for user ${user.email}. Failed attempts reset to 0.`,
+        userId,
+      });
+    } catch (error: any) {
+      console.error("Admin unlock PIN error:", error);
+      res.status(500).json({ success: false, message: "Failed to unlock PIN" });
+    }
+  });
+
+  // Reset a user's PIN (clear the PIN so they can set a new one)
+  app.post("/api/admin/users/:id/reset-pin", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      // Clear the PIN hash so user can set a new PIN
+      await storage.clearUserPin(userId);
+
+      // Create audit log
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "pin_reset",
+        targetType: "user",
+        targetId: userId,
+        details: JSON.stringify({
+          reason: req.body.reason || "Admin reset",
+        }),
+        ipAddress: getClientIp(req),
+        userAgent: req.headers["user-agent"] || null,
+        sessionId: req.headers.authorization?.replace("Bearer ", "") || null,
+        requestMethod: req.method,
+        requestPath: req.path,
+        riskLevel: "high"
+      });
+
+      console.log(`[Admin] User ${req.user!.id} reset PIN for user ${userId}`);
+
+      res.json({
+        success: true,
+        message: `PIN reset for user ${user.email}. User must set a new PIN.`,
+        userId,
+      });
+    } catch (error: any) {
+      console.error("Admin reset PIN error:", error);
+      res.status(500).json({ success: false, message: "Failed to reset PIN" });
+    }
+  });
+
   // Sync all users' PayGram balances (batch operation)
   app.post("/api/admin/users/sync-all-balances", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
     try {

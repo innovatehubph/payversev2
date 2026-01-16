@@ -103,3 +103,20 @@ export function onAdminWithdrawalUpdate(callback: (data: any) => void): () => vo
     socket?.off("admin:withdrawal:updated", callback);
   };
 }
+
+// Subscribe to balance updates
+export function onBalanceUpdate(callback: (data: {
+  phptBalance: string;
+  fiatBalance: string;
+  totalBalance: string;
+}) => void): () => void {
+  if (!socket) return () => {};
+
+  socket.on("balance:updated", callback);
+  console.log("[Socket] Subscribed to balance:updated");
+
+  return () => {
+    socket?.off("balance:updated", callback);
+    console.log("[Socket] Unsubscribed from balance:updated");
+  };
+}

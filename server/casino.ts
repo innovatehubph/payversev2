@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
-import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { CASINO_AGENTS, type CasinoAgent } from "@shared/schema";
 import { transferToAdminWallet, transferFromAdminWallet, getUserPhptBalance } from "./paygram";
 import { getSystemSetting, clearSettingsCache } from "./settings";
+import { verifyUserPin } from "./utils";
 
 const router = Router();
 
@@ -568,61 +568,19 @@ router.post("/deposit", async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: "User not found" });
     }
 
-    // PIN verification required for casino transactions
-    if (!fullUser.pinHash) {
-      return res.status(400).json({
+    // Use centralized PIN verification
+    const pinResult = await verifyUserPin(fullUser, pin, storage.updateUserPinAttempts.bind(storage));
+    if (!pinResult.success) {
+      return res.status(pinResult.statusCode).json({
         success: false,
-        message: "PIN required. Please set up your PIN in Security settings first.",
-        requiresPin: true,
-        needsPinSetup: true
+        message: pinResult.message,
+        requiresPin: pinResult.requiresPin,
+        needsPinSetup: pinResult.needsPinSetup,
+        lockedUntil: pinResult.lockedUntil,
+        attemptsRemaining: pinResult.attemptsRemaining
       });
     }
 
-    if (!pin) {
-      return res.status(400).json({
-        success: false,
-        message: "PIN required for casino transactions",
-        requiresPin: true
-      });
-    }
-
-    // Check PIN lockout
-    if (fullUser.pinLockedUntil && new Date(fullUser.pinLockedUntil) > new Date()) {
-      const remainingMinutes = Math.ceil((new Date(fullUser.pinLockedUntil).getTime() - Date.now()) / 60000);
-      return res.status(423).json({
-        success: false,
-        message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
-        lockedUntil: fullUser.pinLockedUntil
-      });
-    }
-
-    // Verify PIN
-    const isValidPin = await bcrypt.compare(pin, fullUser.pinHash);
-    if (!isValidPin) {
-      const newAttempts = (fullUser.pinFailedAttempts || 0) + 1;
-      const maxAttempts = 5;
-
-      if (newAttempts >= maxAttempts) {
-        const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
-        await storage.updateUserPinAttempts(fullUser.id, newAttempts, lockUntil);
-        return res.status(423).json({
-          success: false,
-          message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
-          lockedUntil: lockUntil
-        });
-      }
-
-      await storage.updateUserPinAttempts(fullUser.id, newAttempts, null);
-      return res.status(401).json({
-        success: false,
-        message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
-        attemptsRemaining: maxAttempts - newAttempts
-      });
-    }
-
-    // Reset failed attempts on success
-    await storage.updateUserPinAttempts(fullUser.id, 0, null);
-    
     if (!depositAmount || depositAmount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
     }
@@ -846,61 +804,19 @@ router.post("/withdraw", async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: "User not found" });
     }
 
-    // PIN verification required for casino transactions
-    if (!fullUser.pinHash) {
-      return res.status(400).json({
+    // Use centralized PIN verification
+    const pinResult = await verifyUserPin(fullUser, pin, storage.updateUserPinAttempts.bind(storage));
+    if (!pinResult.success) {
+      return res.status(pinResult.statusCode).json({
         success: false,
-        message: "PIN required. Please set up your PIN in Security settings first.",
-        requiresPin: true,
-        needsPinSetup: true
+        message: pinResult.message,
+        requiresPin: pinResult.requiresPin,
+        needsPinSetup: pinResult.needsPinSetup,
+        lockedUntil: pinResult.lockedUntil,
+        attemptsRemaining: pinResult.attemptsRemaining
       });
     }
 
-    if (!pin) {
-      return res.status(400).json({
-        success: false,
-        message: "PIN required for casino transactions",
-        requiresPin: true
-      });
-    }
-
-    // Check PIN lockout
-    if (fullUser.pinLockedUntil && new Date(fullUser.pinLockedUntil) > new Date()) {
-      const remainingMinutes = Math.ceil((new Date(fullUser.pinLockedUntil).getTime() - Date.now()) / 60000);
-      return res.status(423).json({
-        success: false,
-        message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
-        lockedUntil: fullUser.pinLockedUntil
-      });
-    }
-
-    // Verify PIN
-    const isValidPin = await bcrypt.compare(pin, fullUser.pinHash);
-    if (!isValidPin) {
-      const newAttempts = (fullUser.pinFailedAttempts || 0) + 1;
-      const maxAttempts = 5;
-
-      if (newAttempts >= maxAttempts) {
-        const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
-        await storage.updateUserPinAttempts(fullUser.id, newAttempts, lockUntil);
-        return res.status(423).json({
-          success: false,
-          message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
-          lockedUntil: lockUntil
-        });
-      }
-
-      await storage.updateUserPinAttempts(fullUser.id, newAttempts, null);
-      return res.status(401).json({
-        success: false,
-        message: `Invalid PIN. ${maxAttempts - newAttempts} attempts remaining.`,
-        attemptsRemaining: maxAttempts - newAttempts
-      });
-    }
-
-    // Reset failed attempts on success
-    await storage.updateUserPinAttempts(fullUser.id, 0, null);
-    
     if (!withdrawAmount || withdrawAmount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
     }

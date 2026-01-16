@@ -6,6 +6,7 @@
 
 import type { User } from "@shared/schema";
 import { ERROR_CODES, type ErrorCode } from "@shared/constants";
+import bcrypt from "bcrypt";
 
 // ============================================================================
 // USER SANITIZATION
@@ -97,6 +98,115 @@ export function errorResponse(
 // ============================================================================
 // PIN VALIDATION HELPERS
 // ============================================================================
+
+// PIN verification constants
+export const MAX_PIN_ATTEMPTS = 5;
+export const PIN_LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * PIN verification result types
+ */
+export interface PinVerificationSuccess {
+  success: true;
+}
+
+export interface PinVerificationError {
+  success: false;
+  error: "NO_PIN_SET" | "PIN_REQUIRED" | "PIN_LOCKED" | "INVALID_PIN";
+  message: string;
+  statusCode: number;
+  requiresPin?: boolean;
+  needsPinSetup?: boolean;
+  lockedUntil?: Date;
+  attemptsRemaining?: number;
+}
+
+export type PinVerificationResult = PinVerificationSuccess | PinVerificationError;
+
+/**
+ * Comprehensive PIN verification function
+ * Use this for ALL PIN verification across the app to ensure consistency
+ *
+ * @param user - Full user object from storage.getUser()
+ * @param pin - PIN entered by user
+ * @param updatePinAttempts - Callback to update PIN attempts (from storage)
+ * @returns PinVerificationResult
+ */
+export async function verifyUserPin(
+  user: User,
+  pin: string | undefined,
+  updatePinAttempts: (userId: number, attempts: number, lockedUntil: Date | null) => Promise<void>
+): Promise<PinVerificationResult> {
+  // Check if user has PIN set up
+  if (!user.pinHash) {
+    return {
+      success: false,
+      error: "NO_PIN_SET",
+      message: "PIN required. Please set up your PIN in Security settings first.",
+      statusCode: 400,
+      requiresPin: true,
+      needsPinSetup: true
+    };
+  }
+
+  // Check if PIN was provided
+  if (!pin) {
+    return {
+      success: false,
+      error: "PIN_REQUIRED",
+      message: "PIN required for this transaction",
+      statusCode: 400,
+      requiresPin: true
+    };
+  }
+
+  // Check PIN lockout
+  if (user.pinLockedUntil && new Date(user.pinLockedUntil) > new Date()) {
+    const remainingMinutes = Math.ceil((new Date(user.pinLockedUntil).getTime() - Date.now()) / 60000);
+    return {
+      success: false,
+      error: "PIN_LOCKED",
+      message: `PIN locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
+      statusCode: 423,
+      lockedUntil: new Date(user.pinLockedUntil)
+    };
+  }
+
+  // Verify PIN
+  const isValidPin = await bcrypt.compare(pin, user.pinHash);
+
+  if (!isValidPin) {
+    const newAttempts = (user.pinFailedAttempts || 0) + 1;
+
+    if (newAttempts >= MAX_PIN_ATTEMPTS) {
+      // Lock the PIN
+      const lockUntil = new Date(Date.now() + PIN_LOCKOUT_DURATION_MS);
+      await updatePinAttempts(user.id, newAttempts, lockUntil);
+      return {
+        success: false,
+        error: "PIN_LOCKED",
+        message: "Too many failed PIN attempts. PIN locked for 30 minutes.",
+        statusCode: 423,
+        lockedUntil: lockUntil
+      };
+    }
+
+    // Update failed attempts
+    await updatePinAttempts(user.id, newAttempts, null);
+    return {
+      success: false,
+      error: "INVALID_PIN",
+      message: `Invalid PIN. ${MAX_PIN_ATTEMPTS - newAttempts} attempts remaining.`,
+      statusCode: 401,
+      attemptsRemaining: MAX_PIN_ATTEMPTS - newAttempts
+    };
+  }
+
+  // Reset failed attempts on success
+  await updatePinAttempts(user.id, 0, null);
+
+  return { success: true };
+}
 
 /**
  * Check if user's PIN is locked due to too many failed attempts

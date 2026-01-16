@@ -19,6 +19,7 @@ import { db } from "../db";
 import { users, transactions, type User, type Transaction } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { TRANSACTION_TYPES } from "@shared/constants";
+import { broadcastBalanceUpdate } from "./websocket";
 
 // ============================================================================
 // TYPES
@@ -121,6 +122,13 @@ export const balanceService = {
 
       console.log(`[BalanceService] Credit: User ${userId} +${amount} PHPT (${type}). New balance: ${formattedBalance}`);
 
+      // Broadcast balance update via WebSocket
+      broadcastBalanceUpdate(userId, {
+        phptBalance: formattedBalance,
+        fiatBalance: "0.00",
+        totalBalance: formattedBalance,
+      });
+
       return {
         userId,
         previousBalance: user.phptBalance,
@@ -176,6 +184,13 @@ export const balanceService = {
       }).returning();
 
       console.log(`[BalanceService] Debit: User ${userId} -${amount} PHPT (${type}). New balance: ${formattedBalance}`);
+
+      // Broadcast balance update via WebSocket
+      broadcastBalanceUpdate(userId, {
+        phptBalance: formattedBalance,
+        fiatBalance: "0.00",
+        totalBalance: formattedBalance,
+      });
 
       return {
         userId,
@@ -247,6 +262,18 @@ export const balanceService = {
       }).returning();
 
       console.log(`[BalanceService] Transfer: User ${senderId} -> User ${receiverId}: ${amount} PHPT`);
+
+      // Broadcast balance updates to both sender and receiver
+      broadcastBalanceUpdate(senderId, {
+        phptBalance: formatBalance(newSenderBalance),
+        fiatBalance: "0.00",
+        totalBalance: formatBalance(newSenderBalance),
+      });
+      broadcastBalanceUpdate(receiverId, {
+        phptBalance: formatBalance(newReceiverBalance),
+        fiatBalance: "0.00",
+        totalBalance: formatBalance(newReceiverBalance),
+      });
 
       return {
         senderResult: {

@@ -1,7 +1,10 @@
 import nodemailer from "nodemailer";
+import { getSystemSetting } from "./settings";
 
 // Logo is served from the app's public folder - computed at runtime
-function getLogoUrl(): string {
+async function getLogoUrl(): Promise<string> {
+  const logoUrl = await getSystemSetting("EMAIL_LOGO_URL", "");
+  if (logoUrl) return logoUrl;
   const appUrl = process.env.APP_URL || "https://payverse.ph";
   return `${appUrl}/payverse_logo.png`;
 }
@@ -15,17 +18,50 @@ const PRIMARY_COLOR = "#7C3AED";
 const SUPPORT_EMAIL = "support@payverse.ph";
 
 let transporter: nodemailer.Transporter | null = null;
+let smtpConfigured = false;
 
+// Initialize email transporter using database settings (called on first send)
+async function getTransporter(): Promise<nodemailer.Transporter | null> {
+  if (transporter && smtpConfigured) {
+    return transporter;
+  }
+
+  // Try database settings first, fall back to environment variables
+  const host = await getSystemSetting("SMTP_HOST", process.env.SMTP_HOST || "");
+  const port = parseInt(await getSystemSetting("SMTP_PORT", process.env.SMTP_PORT || "587"));
+  const user = await getSystemSetting("SMTP_USER", process.env.SMTP_USER || "");
+  const pass = await getSystemSetting("SMTP_PASS", process.env.SMTP_PASS || "");
+
+  if (!host || !user || !pass) {
+    console.log("[Email] SMTP not configured - missing host, user, or password");
+    return null;
+  }
+
+  console.log(`[Email] Configuring SMTP: ${host}:${port} (user: ${user})`);
+
+  transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass },
+    tls: {
+      rejectUnauthorized: false // Allow self-signed certificates
+    }
+  });
+
+  smtpConfigured = true;
+  return transporter;
+}
+
+// Legacy function for backward compatibility - initializes on startup using env vars only
 export function initializeEmailTransporter() {
-  // Support both EMAIL_* and SMTP_* environment variable names
   const host = process.env.EMAIL_HOST || process.env.SMTP_HOST;
   const port = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || "587");
   const user = process.env.EMAIL_USER || process.env.SMTP_USER;
   const pass = process.env.EMAIL_PASSWORD || process.env.SMTP_PASS;
-  const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@payverse.ph";
 
   if (!host || !user || !pass) {
-    console.log("[Email] SMTP not configured - email notifications disabled");
+    console.log("[Email] SMTP not configured via env vars - will use database settings on demand");
     return null;
   }
 
@@ -34,20 +70,32 @@ export function initializeEmailTransporter() {
     port,
     secure: port === 465,
     auth: { user, pass },
+    tls: {
+      rejectUnauthorized: false
+    }
   });
 
   transporter.verify((error) => {
     if (error) {
       console.error("[Email] SMTP verification failed:", error.message);
     } else {
-      console.log("[Email] SMTP connected and ready");
+      console.log("[Email] SMTP connected and ready (from env vars)");
+      smtpConfigured = true;
     }
   });
 
   return transporter;
 }
 
-function getBaseTemplate(content: string, preheader?: string): string {
+// Clear cached transporter (call when SMTP settings are updated)
+export function clearEmailTransporter() {
+  transporter = null;
+  smtpConfigured = false;
+  console.log("[Email] Transporter cache cleared - will reload settings on next send");
+}
+
+async function getBaseTemplate(content: string, preheader?: string): Promise<string> {
+  const logoUrl = await getLogoUrl();
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -99,7 +147,7 @@ function getBaseTemplate(content: string, preheader?: string): string {
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <img src="${getLogoUrl()}" alt="${APP_NAME}" style="height: 40px; width: auto;" />
+        <img src="${logoUrl}" alt="${APP_NAME}" style="height: 40px; width: auto;" />
       </div>
       <div class="content">
         ${content}
@@ -117,9 +165,42 @@ function getBaseTemplate(content: string, preheader?: string): string {
 }
 
 export const emailTemplates = {
-  depositApproved: (data: { recipientName: string; amount: string; method: string }) => ({
+  // Test email template for verifying SMTP configuration
+  testEmail: async (data: { recipientName: string; testTime: string }) => ({
+    subject: `${APP_NAME} Email Test - Configuration Verified`,
+    html: await getBaseTemplate(`
+      <h1>Email Configuration Test</h1>
+      <p>Hi ${data.recipientName},</p>
+      <p>This is a test email from ${APP_NAME}. If you're receiving this, your email configuration is working correctly!</p>
+
+      <div class="highlight-box">
+        <p style="margin: 0;"><strong>Test Details:</strong></p>
+        <ul style="margin: 12px 0 0 0; padding-left: 20px; color: #4b5563;">
+          <li>Sent at: ${data.testTime}</li>
+          <li>From: ${APP_NAME} System</li>
+          <li>Status: Successfully delivered</li>
+        </ul>
+      </div>
+
+      <p>Your SMTP settings are configured correctly. Email notifications will now work for:</p>
+      <ul style="padding-left: 20px; color: #4b5563;">
+        <li>Deposit approvals and rejections</li>
+        <li>Transfer notifications</li>
+        <li>OTP codes for verification</li>
+        <li>Security alerts</li>
+        <li>KYC status updates</li>
+        <li>Withdrawal notifications</li>
+      </ul>
+
+      <div style="text-align: center;">
+        <a href="https://payverse.ph/admin" class="btn">Go to Admin Panel</a>
+      </div>
+    `, `Email test successful - ${APP_NAME}`),
+  }),
+
+  depositApproved: async (data: { recipientName: string; amount: string; method: string }) => ({
     subject: `Your deposit of ₱${data.amount} has been approved!`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Deposit Approved!</h1>
       <p>Hi ${data.recipientName},</p>
       <p>Great news! Your deposit request has been approved and the PHPT has been credited to your wallet.</p>
@@ -151,9 +232,9 @@ export const emailTemplates = {
     `, `Your deposit of ₱${data.amount} has been approved!`),
   }),
 
-  depositRejected: (data: { recipientName: string; amount: string; reason: string }) => ({
+  depositRejected: async (data: { recipientName: string; amount: string; reason: string }) => ({
     subject: `Your deposit request was not approved`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Deposit Request Update</h1>
       <p>Hi ${data.recipientName},</p>
       <p>We're sorry, but your deposit request could not be approved at this time.</p>
@@ -176,9 +257,9 @@ export const emailTemplates = {
     `, `Your deposit request was not approved`),
   }),
 
-  depositPending: (data: { recipientName: string; amount: string; method: string }) => ({
+  depositPending: async (data: { recipientName: string; amount: string; method: string }) => ({
     subject: `Deposit request received - ₱${data.amount}`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Deposit Request Received</h1>
       <p>Hi ${data.recipientName},</p>
       <p>We've received your deposit request and it's being reviewed by our team. You'll receive another email once it's processed.</p>
@@ -210,9 +291,9 @@ export const emailTemplates = {
     `, `We received your deposit request`),
   }),
 
-  transferReceived: (data: { recipientName: string; senderName: string; amount: string; note?: string }) => ({
+  transferReceived: async (data: { recipientName: string; senderName: string; amount: string; note?: string }) => ({
     subject: `You received ₱${data.amount} from ${data.senderName}`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Money Received!</h1>
       <p>Hi ${data.recipientName},</p>
       <p><strong>${data.senderName}</strong> just sent you money!</p>
@@ -240,9 +321,9 @@ export const emailTemplates = {
     `, `${data.senderName} sent you ₱${data.amount}`),
   }),
 
-  transferSent: (data: { senderName: string; recipientName: string; amount: string; note?: string }) => ({
+  transferSent: async (data: { senderName: string; recipientName: string; amount: string; note?: string }) => ({
     subject: `You sent ₱${data.amount} to ${data.recipientName}`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Transfer Successful</h1>
       <p>Hi ${data.senderName},</p>
       <p>Your transfer to <strong>${data.recipientName}</strong> was successful.</p>
@@ -271,9 +352,9 @@ export const emailTemplates = {
     `, `Transfer to ${data.recipientName} complete`),
   }),
 
-  welcomeEmail: (data: { userName: string }) => ({
+  welcomeEmail: async (data: { userName: string }) => ({
     subject: `Welcome to ${APP_NAME}!`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Welcome to ${APP_NAME}!</h1>
       <p>Hi ${data.userName},</p>
       <p>Thank you for joining PayVerse! Your account has been created successfully.</p>
@@ -296,9 +377,9 @@ export const emailTemplates = {
     `, `Welcome to ${APP_NAME}!`),
   }),
 
-  creditPendingNotice: (data: { recipientName: string; amount: string }) => ({
+  creditPendingNotice: async (data: { recipientName: string; amount: string }) => ({
     subject: `Your deposit is being processed - ₱${data.amount}`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Deposit Processing</h1>
       <p>Hi ${data.recipientName},</p>
       <p>Your deposit has been approved, but there's a slight delay in crediting your PHPT. Our team is working on it.</p>
@@ -317,7 +398,7 @@ export const emailTemplates = {
     `, `Your deposit is being processed`),
   }),
 
-  otpCode: (data: { recipientName: string; otp: string; purpose: string }) => {
+  otpCode: async (data: { recipientName: string; otp: string; purpose: string }) => {
     const purposeLabels: Record<string, string> = {
       verification: "Email Verification",
       login: "Login Verification",
@@ -331,7 +412,7 @@ export const emailTemplates = {
     
     return {
       subject: `${data.otp} is your ${APP_NAME} verification code`,
-      html: getBaseTemplate(`
+      html: await getBaseTemplate(`
         <h1>${purposeLabel}</h1>
         <p>Hi ${data.recipientName},</p>
         <p>Use the following code to complete your ${purposeLabel.toLowerCase()}. This code is valid for 10 minutes.</p>
@@ -357,9 +438,9 @@ export const emailTemplates = {
     };
   },
 
-  securityAlert: (data: { recipientName: string; alertType: string; message: string }) => ({
+  securityAlert: async (data: { recipientName: string; alertType: string; message: string }) => ({
     subject: `Security Alert: ${data.alertType}`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Security Alert</h1>
       <p>Hi ${data.recipientName},</p>
       
@@ -376,9 +457,9 @@ export const emailTemplates = {
     `, data.alertType),
   }),
 
-  newDeviceLogin: (data: { recipientName: string; deviceInfo: string; ipAddress: string; loginTime: string }) => ({
+  newDeviceLogin: async (data: { recipientName: string; deviceInfo: string; ipAddress: string; loginTime: string }) => ({
     subject: `New device login to your ${APP_NAME} account`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>New Device Login Detected</h1>
       <p>Hi ${data.recipientName},</p>
       <p>We detected a new login to your PayVerse account from an unrecognized device.</p>
@@ -409,9 +490,9 @@ export const emailTemplates = {
     `, `New login from ${data.deviceInfo}`),
   }),
 
-  withdrawalInitiated: (data: { recipientName: string; amount: string; method: string }) => ({
+  withdrawalInitiated: async (data: { recipientName: string; amount: string; method: string }) => ({
     subject: `Withdrawal of ₱${data.amount} initiated`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Withdrawal Initiated</h1>
       <p>Hi ${data.recipientName},</p>
       <p>Your withdrawal request has been submitted and is being processed.</p>
@@ -437,9 +518,9 @@ export const emailTemplates = {
     `, `Withdrawal of ₱${data.amount} initiated`),
   }),
 
-  withdrawalCompleted: (data: { recipientName: string; amount: string; method: string }) => ({
+  withdrawalCompleted: async (data: { recipientName: string; amount: string; method: string }) => ({
     subject: `Withdrawal of ₱${data.amount} completed`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>Withdrawal Completed</h1>
       <p>Hi ${data.recipientName},</p>
       <p>Great news! Your withdrawal has been completed successfully.</p>
@@ -463,9 +544,9 @@ export const emailTemplates = {
     `, `Withdrawal of ₱${data.amount} completed`),
   }),
 
-  kycApproved: (data: { recipientName: string }) => ({
+  kycApproved: async (data: { recipientName: string }) => ({
     subject: `Your identity verification is approved!`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>KYC Verification Approved!</h1>
       <p>Hi ${data.recipientName},</p>
       <p>Congratulations! Your identity verification (KYC) has been approved.</p>
@@ -489,9 +570,9 @@ export const emailTemplates = {
     `, `Your KYC verification is approved!`),
   }),
 
-  kycRejected: (data: { recipientName: string; reason: string }) => ({
+  kycRejected: async (data: { recipientName: string; reason: string }) => ({
     subject: `Action required: KYC verification update`,
-    html: getBaseTemplate(`
+    html: await getBaseTemplate(`
       <h1>KYC Verification Update</h1>
       <p>Hi ${data.recipientName},</p>
       <p>Unfortunately, we couldn't verify your identity based on the documents you submitted.</p>
@@ -520,15 +601,19 @@ export const emailTemplates = {
 };
 
 export async function sendEmail(to: string, template: { subject: string; html: string }): Promise<boolean> {
-  if (!transporter) {
+  // Get transporter dynamically (reads from database settings)
+  const emailTransporter = await getTransporter();
+
+  if (!emailTransporter) {
     console.log("[Email] Skipping email - SMTP not configured");
     return false;
   }
 
-  const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || "PayVerse <noreply@payverse.ph>";
+  // Get from address from database settings or fall back to env vars
+  const from = await getSystemSetting("SMTP_FROM", process.env.SMTP_FROM || "PayVerse <noreply@payverse.ph>");
 
   try {
-    const info = await transporter.sendMail({
+    const info = await emailTransporter.sendMail({
       from,
       to,
       subject: template.subject,
@@ -543,48 +628,48 @@ export async function sendEmail(to: string, template: { subject: string; html: s
 }
 
 export async function sendDepositApprovedEmail(email: string, name: string, amount: string, method: string) {
-  const template = emailTemplates.depositApproved({ recipientName: name, amount, method });
+  const template = await emailTemplates.depositApproved({ recipientName: name, amount, method });
   return sendEmail(email, template);
 }
 
 export async function sendDepositRejectedEmail(email: string, name: string, amount: string, reason: string) {
-  const template = emailTemplates.depositRejected({ recipientName: name, amount, reason });
+  const template = await emailTemplates.depositRejected({ recipientName: name, amount, reason });
   return sendEmail(email, template);
 }
 
 export async function sendDepositPendingEmail(email: string, name: string, amount: string, method: string) {
-  const template = emailTemplates.depositPending({ recipientName: name, amount, method });
+  const template = await emailTemplates.depositPending({ recipientName: name, amount, method });
   return sendEmail(email, template);
 }
 
 export async function sendTransferReceivedEmail(email: string, recipientName: string, senderName: string, amount: string, note?: string) {
-  const template = emailTemplates.transferReceived({ recipientName, senderName, amount, note });
+  const template = await emailTemplates.transferReceived({ recipientName, senderName, amount, note });
   return sendEmail(email, template);
 }
 
 export async function sendTransferSentEmail(email: string, senderName: string, recipientName: string, amount: string, note?: string) {
-  const template = emailTemplates.transferSent({ senderName, recipientName, amount, note });
+  const template = await emailTemplates.transferSent({ senderName, recipientName, amount, note });
   return sendEmail(email, template);
 }
 
 export async function sendWelcomeEmail(email: string, name: string) {
-  const template = emailTemplates.welcomeEmail({ userName: name });
+  const template = await emailTemplates.welcomeEmail({ userName: name });
   return sendEmail(email, template);
 }
 
 export async function sendCreditPendingEmail(email: string, name: string, amount: string) {
-  const template = emailTemplates.creditPendingNotice({ recipientName: name, amount });
+  const template = await emailTemplates.creditPendingNotice({ recipientName: name, amount });
   return sendEmail(email, template);
 }
 
 export async function sendOtpEmail(email: string, name: string, otp: string, purpose: string = "verification") {
-  const template = emailTemplates.otpCode({ recipientName: name, otp, purpose });
+  const template = await emailTemplates.otpCode({ recipientName: name, otp, purpose });
   return sendEmail(email, template);
 }
 
 export async function sendPasswordChangedEmail(email: string, name: string, changeType: string = "Password") {
-  const template = emailTemplates.securityAlert({ 
-    recipientName: name, 
+  const template = await emailTemplates.securityAlert({
+    recipientName: name,
     alertType: `${changeType} Changed`,
     message: `Your ${changeType.toLowerCase()} has been changed successfully. If you did not make this change, please contact support immediately.`
   });
@@ -592,8 +677,8 @@ export async function sendPasswordChangedEmail(email: string, name: string, chan
 }
 
 export async function sendPinSetupEmail(email: string, name: string) {
-  const template = emailTemplates.securityAlert({ 
-    recipientName: name, 
+  const template = await emailTemplates.securityAlert({
+    recipientName: name,
     alertType: "PIN Set Up",
     message: "Your transaction PIN has been set up successfully. You can now use your PIN to authorize transfers and withdrawals."
   });
@@ -601,31 +686,42 @@ export async function sendPinSetupEmail(email: string, name: string) {
 }
 
 export async function sendNewDeviceLoginEmail(email: string, name: string, deviceInfo: string, ipAddress: string, loginTime: Date) {
-  const template = emailTemplates.newDeviceLogin({ 
-    recipientName: name, 
-    deviceInfo, 
-    ipAddress, 
-    loginTime: loginTime.toLocaleString() 
+  const template = await emailTemplates.newDeviceLogin({
+    recipientName: name,
+    deviceInfo,
+    ipAddress,
+    loginTime: loginTime.toLocaleString()
   });
   return sendEmail(email, template);
 }
 
 export async function sendWithdrawalInitiatedEmail(email: string, name: string, amount: string, method: string) {
-  const template = emailTemplates.withdrawalInitiated({ recipientName: name, amount, method });
+  const template = await emailTemplates.withdrawalInitiated({ recipientName: name, amount, method });
   return sendEmail(email, template);
 }
 
 export async function sendWithdrawalCompletedEmail(email: string, name: string, amount: string, method: string) {
-  const template = emailTemplates.withdrawalCompleted({ recipientName: name, amount, method });
+  const template = await emailTemplates.withdrawalCompleted({ recipientName: name, amount, method });
   return sendEmail(email, template);
 }
 
 export async function sendKycApprovedEmail(email: string, name: string) {
-  const template = emailTemplates.kycApproved({ recipientName: name });
+  const template = await emailTemplates.kycApproved({ recipientName: name });
   return sendEmail(email, template);
 }
 
 export async function sendKycRejectedEmail(email: string, name: string, reason: string) {
-  const template = emailTemplates.kycRejected({ recipientName: name, reason });
+  const template = await emailTemplates.kycRejected({ recipientName: name, reason });
+  return sendEmail(email, template);
+}
+
+// Send a test email to verify SMTP configuration
+export async function sendTestEmail(email: string, name: string) {
+  const testTime = new Date().toLocaleString("en-US", {
+    dateStyle: "full",
+    timeStyle: "long",
+    timeZone: "Asia/Manila"
+  });
+  const template = await emailTemplates.testEmail({ recipientName: name, testTime });
   return sendEmail(email, template);
 }
