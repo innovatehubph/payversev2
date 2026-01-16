@@ -17,15 +17,18 @@ declare module "http" {
   }
 }
 
+// Increase payload limit for base64 image uploads (KYC documents, proof images)
+// 5MB file → ~6.67MB base64, so we set limit to 10MB to be safe
 app.use(
   express.json({
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
