@@ -7,8 +7,6 @@ import { transferFromAdminWallet, getUserPhptBalance, registerPaygramUser, getSh
 import { sanitizeUser, sanitizeUsers, generateRequestId, getClientIp, isAdmin as checkIsAdmin } from "./utils";
 import { getSystemSetting } from "./settings";
 
-const PAYGRAM_API_URL = "https://api.pay-gram.org";
-
 export const adminRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,

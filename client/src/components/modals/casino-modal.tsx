@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,22 +13,29 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Gamepad2, 
-  ArrowDownToLine, 
-  ArrowUpFromLine, 
-  Loader2, 
+import {
+  Gamepad2,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Loader2,
   CheckCircle,
   AlertCircle,
   Wallet,
   RefreshCw,
   Link2,
   Unlink,
-  Shield
+  Shield,
+  Lock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/lib/api";
 import { formatPeso, cn } from "@/lib/utils";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+  InputOTPSeparator,
+} from "@/components/ui/input-otp";
 
 interface CasinoModalProps {
   open: boolean;
@@ -50,6 +58,12 @@ export function CasinoModal({ open, onOpenChange }: CasinoModalProps) {
   const [assignedAgent, setAssignedAgent] = useState<string | null>(null);
   const [isAgent, setIsAgent] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+
+  // PIN verification state
+  const [showPinDialog, setShowPinDialog] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pendingAmount, setPendingAmount] = useState<number>(0);
 
   const getAuthHeaders = useCallback(() => {
     const token = getAuthToken();
@@ -96,6 +110,9 @@ export function CasinoModal({ open, onOpenChange }: CasinoModalProps) {
       fetchBalances();
       setSuccess(false);
       setAmount("");
+      setPin("");
+      setPinError(null);
+      setShowPinDialog(false);
     }
   }, [open, fetchBalances]);
 
@@ -125,6 +142,7 @@ export function CasinoModal({ open, onOpenChange }: CasinoModalProps) {
     }
   };
 
+  // Step 1: Validate and show PIN dialog
   const handleTransaction = async () => {
     if (!amount || parseFloat(amount) <= 0) {
       toast({ title: "Invalid Amount", description: "Please enter a valid amount", variant: "destructive" });
@@ -132,46 +150,79 @@ export function CasinoModal({ open, onOpenChange }: CasinoModalProps) {
     }
 
     const parsedAmount = parseFloat(amount);
-    
+
     if (activeTab === "deposit" && parsedAmount > phptBalance) {
       toast({ title: "Insufficient Balance", description: "Not enough PHPT balance", variant: "destructive" });
       return;
     }
 
-    if (activeTab === "withdraw" && casinoBalance !== null && parsedAmount > casinoBalance) {
-      toast({ title: "Insufficient Balance", description: "Not enough casino balance", variant: "destructive" });
+    // Note: We don't validate casino balance on frontend since it's not reliable/real-time
+    // The backend will verify the actual casino balance via 747 API
+
+    // Store amount and show PIN dialog
+    setPendingAmount(parsedAmount);
+    setPin("");
+    setPinError(null);
+    setShowPinDialog(true);
+  };
+
+  // Step 2: Execute transaction with PIN
+  const handleConfirmTransaction = async () => {
+    if (pin.length !== 6) {
+      setPinError("Please enter your 6-digit PIN");
       return;
     }
 
     setLoading(true);
+    let shouldCloseDialog = true;
+
     try {
       const endpoint = activeTab === "deposit" ? "/api/casino/deposit" : "/api/casino/withdraw";
       const response = await fetch(endpoint, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ amount: parsedAmount })
+        body: JSON.stringify({ amount: pendingAmount, pin })
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
+        setShowPinDialog(false);
         setSuccess(true);
-        toast({ 
+        toast({
           title: activeTab === "deposit" ? "Deposit Successful" : "Withdrawal Successful",
-          description: `${formatPeso(parsedAmount)} has been ${activeTab === "deposit" ? "deposited to" : "withdrawn from"} your casino account`
+          description: `${formatPeso(pendingAmount)} has been ${activeTab === "deposit" ? "deposited to" : "withdrawn from"} your casino account`
         });
         fetchBalances();
       } else {
-        throw new Error(data.message || "Transaction failed");
+        // Handle PIN-related errors
+        if (data.requiresPin || data.needsPinSetup || data.message?.toLowerCase().includes("pin")) {
+          shouldCloseDialog = false;
+          setPinError(data.message || "Invalid PIN");
+          setPin("");
+
+          if (data.needsPinSetup) {
+            toast({
+              title: "PIN Required",
+              description: "Please set up your PIN in Settings first",
+              variant: "destructive"
+            });
+          }
+        } else {
+          throw new Error(data.message || "Transaction failed");
+        }
       }
     } catch (error: any) {
-      toast({ 
-        title: "Transaction Failed", 
-        description: error.message || "Please try again", 
-        variant: "destructive" 
+      toast({
+        title: "Transaction Failed",
+        description: error.message || "Please try again",
+        variant: "destructive"
       });
     } finally {
       setLoading(false);
+      if (shouldCloseDialog) {
+        setShowPinDialog(false);
+      }
     }
   };
 
@@ -414,6 +465,77 @@ export function CasinoModal({ open, onOpenChange }: CasinoModalProps) {
           </div>
         )}
       </DialogContent>
+
+      {/* PIN Verification Dialog */}
+      <Dialog open={showPinDialog} onOpenChange={(open) => {
+        if (!open && !loading) {
+          setShowPinDialog(false);
+          setPin("");
+          setPinError(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-primary" />
+              Enter PIN to Confirm
+            </DialogTitle>
+            <DialogDescription>
+              Enter your 6-digit PIN to {activeTab === "deposit" ? "deposit" : "withdraw"} {formatPeso(pendingAmount)}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center gap-4 py-4">
+            <InputOTP
+              value={pin}
+              onChange={(value) => {
+                setPin(value);
+                setPinError(null);
+              }}
+              maxLength={6}
+              disabled={loading}
+            >
+              <InputOTPGroup>
+                <InputOTPSlot index={0} />
+                <InputOTPSlot index={1} />
+                <InputOTPSlot index={2} />
+              </InputOTPGroup>
+              <InputOTPSeparator />
+              <InputOTPGroup>
+                <InputOTPSlot index={3} />
+                <InputOTPSlot index={4} />
+                <InputOTPSlot index={5} />
+              </InputOTPGroup>
+            </InputOTP>
+
+            {pinError && (
+              <p className="text-sm text-destructive text-center">{pinError}</p>
+            )}
+
+            <div className="flex gap-3 w-full mt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowPinDialog(false);
+                  setPin("");
+                  setPinError(null);
+                }}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleConfirmTransaction}
+                disabled={loading || pin.length !== 6}
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

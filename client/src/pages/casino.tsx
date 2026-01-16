@@ -407,16 +407,8 @@ export default function Casino() {
       return;
     }
 
-    // Use withdrawableBalance if available, otherwise fall back to balance
-    const availableForWithdraw = status?.withdrawableBalance ?? status?.balance ?? 0;
-    if (parsedAmount > availableForWithdraw) {
-      toast({
-        title: "Insufficient Withdrawable Balance",
-        description: `You can only withdraw ₱${availableForWithdraw.toLocaleString()}. Some chips may be locked or non-cashable.`,
-        variant: "destructive"
-      });
-      return;
-    }
+    // Note: We don't validate casino balance on frontend since it's not reliable/real-time
+    // The backend will verify the actual casino balance via 747 API
 
     // Show PIN dialog instead of processing directly
     setPendingAction("withdraw");
@@ -745,7 +737,7 @@ export default function Casino() {
                     <div className="space-y-2">
                       <Label className="flex items-center justify-between">
                         <span>Amount (Chips → PHPT)</span>
-                        <span className="text-sm text-muted-foreground">Withdrawable: ₱{(status.withdrawableBalance ?? status.balance ?? 0).toLocaleString()}</span>
+                        <span className="text-sm text-muted-foreground">Check 747 for balance</span>
                       </Label>
                       <div className="relative">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-muted-foreground">₱</span>
