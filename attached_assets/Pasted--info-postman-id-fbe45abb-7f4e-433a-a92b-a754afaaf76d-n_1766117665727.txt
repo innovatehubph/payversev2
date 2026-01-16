@@ -1,0 +1,379 @@
+{
+	"info": {
+		"_postman_id": "fbe45abb-7f4e-433a-a92b-a754afaaf76d",
+		"name": "NexusPay Api Documentation",
+		"description": "For you account username and password will be given via email",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "12599344"
+	},
+	"item": [
+		{
+			"name": "For Cash In Request",
+			"item": [
+				{
+					"name": "https://nexuspay.cloud/api/csrf_token",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": []
+						},
+						"url": {
+							"raw": "https://nexuspay.cloud/api/csrf_token",
+							"protocol": "https",
+							"host": [
+								"nexuspay",
+								"cloud"
+							],
+							"path": [
+								"api",
+								"csrf_token"
+							]
+						},
+						"description": "This will get a csrf token"
+					},
+					"response": [
+						{
+							"name": "https://nexuspay.cloud/api/csrf_token",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"body": {
+									"mode": "urlencoded",
+									"urlencoded": []
+								},
+								"url": {
+									"raw": "https://direct-payph.com/api/csrf_token",
+									"protocol": "https",
+									"host": [
+										"direct-payph",
+										"com"
+									],
+									"path": [
+										"api",
+										"csrf_token"
+									]
+								}
+							},
+							"_postman_previewlanguage": null,
+							"header": null,
+							"cookie": [],
+							"body": null
+						}
+					]
+				},
+				{
+					"name": "https://nexuspay.cloud/api/create/login",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-CSRF-TOKEN",
+								"value": "65fbe3439d6d09ac2dfcd35ec15a18b1fb7a3f436e9a297c4dc16431a8d2cc8b",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://nexuspay.cloud/api/create/login",
+							"protocol": "https",
+							"host": [
+								"nexuspay",
+								"cloud"
+							],
+							"path": [
+								"api",
+								"create",
+								"login"
+							]
+						},
+						"description": "login process\n\nlogin process must a valid csrf token\n\ngenerate qrph insert token on header. Authorization Bearer"
+					},
+					"response": [
+						{
+							"name": "https://nexuspay.cloud/api/create/login",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-CSRF-TOKEN",
+										"value": "9b9281ffba47409f70d0155a6905b0ff5e8c6a65454c32bdacab20f21ff2df75",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"username\":\"<username_provide>\", \n    \"password\":\"<password_provide>\"\n    }\n\n\n\n",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://direct-payph.com/api/create/login",
+									"protocol": "https",
+									"host": [
+										"direct-payph",
+										"com"
+									],
+									"path": [
+										"api",
+										"create",
+										"login"
+									]
+								}
+							},
+							"_postman_previewlanguage": null,
+							"header": null,
+							"cookie": [],
+							"body": "{\n    \"status\": \"success\",\n    \"message\": \"Logged in successfully.\",\n    \"data\": {\n        \"username\": \"colorway\",\n        \"token\": \"af9f6a26dc42f626eead92b373b1f23dab016aa24d08296f1da392e2d508c853f5411a0cc9ee12740341f51f1eec6a9s\"\n    }\n}"
+						}
+					]
+				},
+				{
+					"name": "https://nexuspay.cloud/api/direct_pay_cashin",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-CSRF-TOKEN",
+								"value": "ba534eff8af0dc9d447086c1fe000531a9786bec769df73ccb5489e823f69eaa",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer f2ebd712a6f072ea1915b98b5908789b271d0676d5171a795b823fad59387409ecd2f6ed2ff87d260245a8272141e8f8",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 100.00,\n    \"webhook\": \"<yout-web-hook-url->\",\n    \"redirectUrl\": \"https://your-redirect.url\"\n}   \n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://nexuspay.cloud/api/direct_pay_cashin",
+							"protocol": "https",
+							"host": [
+								"nexuspay",
+								"cloud"
+							],
+							"path": [
+								"api",
+								"direct_pay_cashin"
+							]
+						},
+						"description": "This will be generate a link of Gcash cash in"
+					},
+					"response": [
+						{
+							"name": "https://direct-payph.com/api/direct_pay_cashin",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-CSRF-TOKEN",
+										"value": "ba534eff8af0dc9d447086c1fe000531a9786bec769df73ccb5489e823f69eaa",
+										"type": "text",
+										"disabled": true
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer <your-token->",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"amount\": 100.00,\n    \"webhook\": \"webhook\",\n    \"redirectUrl\": \"https://your-redirect.url\"\n}   \n",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://direct-payph.com/api/direct_pay_cashin",
+									"protocol": "https",
+									"host": [
+										"direct-payph",
+										"com"
+									],
+									"path": [
+										"api",
+										"direct_pay_cashin"
+									]
+								}
+							},
+							"_postman_previewlanguage": null,
+							"header": null,
+							"cookie": [],
+							"body": "{\n    \"status\": \"status\",\n    \"link\": \"https://direct-payph.com/api/cash_in/329481382962231\",\n    \"transactionId\": \"AQ202504211140582312\"\n}"
+						}
+					]
+				},
+				{
+					"name": "https://nexuspay.cloud/api/direct_pay_cashin Copy",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-CSRF-TOKEN",
+								"value": "ba534eff8af0dc9d447086c1fe000531a9786bec769df73ccb5489e823f69eaa",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer f2ebd712a6f072ea1915b98b5908789b271d0676d5171a795b823fad59387409ecd2f6ed2ff87d260245a8272141e8f8",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 100.00,\n    \"webhook\": \"<yout-web-hook-url->\",\n    \"redirectUrl\": \"https://your-redirect.url\"\n}   \n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://nexuspay.cloud/api/direct_pay_cashin",
+							"protocol": "https",
+							"host": [
+								"nexuspay",
+								"cloud"
+							],
+							"path": [
+								"api",
+								"direct_pay_cashin"
+							]
+						},
+						"description": "This will be generate a link of Gcash cash in"
+					},
+					"response": [
+						{
+							"name": "https://direct-payph.com/api/direct_pay_cashin",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-CSRF-TOKEN",
+										"value": "ba534eff8af0dc9d447086c1fe000531a9786bec769df73ccb5489e823f69eaa",
+										"type": "text",
+										"disabled": true
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer <your-token->",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"amount\": 100.00,\n    \"webhook\": \"webhook\",\n    \"redirectUrl\": \"https://your-redirect.url\"\n}   \n",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://direct-payph.com/api/direct_pay_cashin",
+									"protocol": "https",
+									"host": [
+										"direct-payph",
+										"com"
+									],
+									"path": [
+										"api",
+										"direct_pay_cashin"
+									]
+								}
+							},
+							"_postman_previewlanguage": null,
+							"header": null,
+							"cookie": [],
+							"body": "{\n    \"status\": \"status\",\n    \"link\": \"https://direct-payph.com/api/cash_in/329481382962231\",\n    \"transactionId\": \"AQ202504211140582312\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "For Cash out Request",
+			"item": [
+				{
+					"name": "localhost/api/pay_out",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "51e8c84b81b7eb34805f57001cb28cb8a676c365e57e6ce29e094780ac26df72943ecf0ed99f30f78ebe0f99e128c181",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-data",
+								"value": "N6V2v2TmDpHqvVYgkw2pF2/yZRr5JL2ggeaQtYDdye1JOdZWaMGDzrAQBnaBqQUCtV7e/lbvTVIkHCr19tg5lHdljxGFEklfP/LMSRdpcPQ/h9BgRzjuN8X21fQvipde6Y1LhQTceesTHKFGzb3xtRI7lSNS8ykz/ixA+X3m7t6cCd9KQmyiz4t0p6oRGnBx",
+								"type": "text"
+							},
+							{
+								"key": "X-code",
+								"value": "",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "localhost/api/create_pay_out",
+							"host": [
+								"localhost"
+							],
+							"path": [
+								"api",
+								"create_pay_out"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

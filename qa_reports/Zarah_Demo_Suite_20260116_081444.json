@@ -1,0 +1,554 @@
+{
+  "suite": {
+    "name": "Zarah Demo Suite",
+    "description": "Demonstration of Zarah QA Agent capabilities",
+    "scenarios": [
+      {
+        "name": "Example.com Load Test",
+        "description": "Verify example.com loads correctly",
+        "steps": [
+          {
+            "name": "Navigate",
+            "action": "navigate",
+            "target": "https://example.com",
+            "value": null,
+            "timeout": null,
+            "critical": true,
+            "description": ""
+          },
+          {
+            "name": "Verify Title",
+            "action": "assert_title",
+            "target": "Example",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Verify Content",
+            "action": "assert_text",
+            "target": "Example Domain",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot",
+            "action": "screenshot",
+            "target": "example_com",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          }
+        ],
+        "setup_steps": [],
+        "teardown_steps": [],
+        "tags": [
+          "demo",
+          "smoke"
+        ],
+        "priority": 5
+      },
+      {
+        "name": "HTTPBin Test",
+        "description": "Test HTTPBin service",
+        "steps": [
+          {
+            "name": "Navigate to HTTPBin",
+            "action": "navigate",
+            "target": "https://httpbin.org",
+            "value": null,
+            "timeout": null,
+            "critical": true,
+            "description": ""
+          },
+          {
+            "name": "Verify Page",
+            "action": "assert_text",
+            "target": "httpbin",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot",
+            "action": "screenshot",
+            "target": "httpbin",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          }
+        ],
+        "setup_steps": [],
+        "teardown_steps": [],
+        "tags": [
+          "demo",
+          "api"
+        ],
+        "priority": 5
+      },
+      {
+        "name": "Multi-Page Navigation",
+        "description": "Test navigation between multiple pages",
+        "steps": [
+          {
+            "name": "Go to Example.com",
+            "action": "navigate",
+            "target": "https://example.com",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot Page 1",
+            "action": "screenshot",
+            "target": "nav_1",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Go to HTTPBin",
+            "action": "navigate",
+            "target": "https://httpbin.org",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot Page 2",
+            "action": "screenshot",
+            "target": "nav_2",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Verify HTTPBin",
+            "action": "assert_text",
+            "target": "HTTP",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          }
+        ],
+        "setup_steps": [],
+        "teardown_steps": [],
+        "tags": [
+          "demo",
+          "navigation"
+        ],
+        "priority": 5
+      }
+    ],
+    "tags": []
+  },
+  "generated_at": "2026-01-16T08:14:44.605974",
+  "statistics": {
+    "total_scenarios": 3,
+    "passed_scenarios": 2,
+    "failed_scenarios": 1,
+    "error_scenarios": 0,
+    "total_steps": 12,
+    "passed_steps": 11,
+    "failed_steps": 1,
+    "total_duration": 9.737978,
+    "pass_rate": 66.66666666666666
+  },
+  "results": [
+    {
+      "scenario": {
+        "name": "Example.com Load Test",
+        "description": "Verify example.com loads correctly",
+        "steps": [
+          {
+            "name": "Navigate",
+            "action": "navigate",
+            "target": "https://example.com",
+            "value": null,
+            "timeout": null,
+            "critical": true,
+            "description": ""
+          },
+          {
+            "name": "Verify Title",
+            "action": "assert_title",
+            "target": "Example",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Verify Content",
+            "action": "assert_text",
+            "target": "Example Domain",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot",
+            "action": "screenshot",
+            "target": "example_com",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          }
+        ],
+        "setup_steps": [],
+        "teardown_steps": [],
+        "tags": [
+          "demo",
+          "smoke"
+        ],
+        "priority": 5
+      },
+      "status": "passed",
+      "step_results": [
+        {
+          "step": {
+            "name": "Navigate",
+            "action": "navigate",
+            "target": "https://example.com",
+            "value": null,
+            "timeout": null,
+            "critical": true,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:35.386483",
+          "end_time": "2026-01-16T08:14:35.893099",
+          "duration": 0.506616
+        },
+        {
+          "step": {
+            "name": "Verify Title",
+            "action": "assert_title",
+            "target": "Example",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:35.893144",
+          "end_time": "2026-01-16T08:14:35.901378",
+          "duration": 0.008234
+        },
+        {
+          "step": {
+            "name": "Verify Content",
+            "action": "assert_text",
+            "target": "Example Domain",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:35.901399",
+          "end_time": "2026-01-16T08:14:35.911641",
+          "duration": 0.010242
+        },
+        {
+          "step": {
+            "name": "Screenshot",
+            "action": "screenshot",
+            "target": "example_com",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "/root/payverse/qa_screenshots/example_com_20260116_081435.png",
+          "start_time": "2026-01-16T08:14:35.911660",
+          "end_time": "2026-01-16T08:14:35.974934",
+          "duration": 0.063274
+        }
+      ],
+      "start_time": "2026-01-16T08:14:34.867338",
+      "end_time": "2026-01-16T08:14:36.125489",
+      "duration": 1.258151,
+      "passed_steps": 4,
+      "failed_steps": 0,
+      "total_steps": 4
+    },
+    {
+      "scenario": {
+        "name": "HTTPBin Test",
+        "description": "Test HTTPBin service",
+        "steps": [
+          {
+            "name": "Navigate to HTTPBin",
+            "action": "navigate",
+            "target": "https://httpbin.org",
+            "value": null,
+            "timeout": null,
+            "critical": true,
+            "description": ""
+          },
+          {
+            "name": "Verify Page",
+            "action": "assert_text",
+            "target": "httpbin",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot",
+            "action": "screenshot",
+            "target": "httpbin",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          }
+        ],
+        "setup_steps": [],
+        "teardown_steps": [],
+        "tags": [
+          "demo",
+          "api"
+        ],
+        "priority": 5
+      },
+      "status": "failed",
+      "step_results": [
+        {
+          "step": {
+            "name": "Navigate to HTTPBin",
+            "action": "navigate",
+            "target": "https://httpbin.org",
+            "value": null,
+            "timeout": null,
+            "critical": true,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:36.616135",
+          "end_time": "2026-01-16T08:14:38.546043",
+          "duration": 1.929908
+        },
+        {
+          "step": {
+            "name": "Verify Page",
+            "action": "assert_text",
+            "target": "httpbin",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "failed",
+          "message": "",
+          "screenshot": "/root/payverse/qa_screenshots/failure_Verify Page_20260116_081438.png",
+          "start_time": "2026-01-16T08:14:38.546099",
+          "end_time": "2026-01-16T08:14:38.615517",
+          "duration": 0.069418
+        },
+        {
+          "step": {
+            "name": "Screenshot",
+            "action": "screenshot",
+            "target": "httpbin",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "/root/payverse/qa_screenshots/httpbin_20260116_081438.png",
+          "start_time": "2026-01-16T08:14:38.615541",
+          "end_time": "2026-01-16T08:14:38.658489",
+          "duration": 0.042948
+        }
+      ],
+      "start_time": "2026-01-16T08:14:36.125594",
+      "end_time": "2026-01-16T08:14:38.818431",
+      "duration": 2.692837,
+      "passed_steps": 2,
+      "failed_steps": 1,
+      "total_steps": 3
+    },
+    {
+      "scenario": {
+        "name": "Multi-Page Navigation",
+        "description": "Test navigation between multiple pages",
+        "steps": [
+          {
+            "name": "Go to Example.com",
+            "action": "navigate",
+            "target": "https://example.com",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot Page 1",
+            "action": "screenshot",
+            "target": "nav_1",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Go to HTTPBin",
+            "action": "navigate",
+            "target": "https://httpbin.org",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Screenshot Page 2",
+            "action": "screenshot",
+            "target": "nav_2",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          {
+            "name": "Verify HTTPBin",
+            "action": "assert_text",
+            "target": "HTTP",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          }
+        ],
+        "setup_steps": [],
+        "teardown_steps": [],
+        "tags": [
+          "demo",
+          "navigation"
+        ],
+        "priority": 5
+      },
+      "status": "passed",
+      "step_results": [
+        {
+          "step": {
+            "name": "Go to Example.com",
+            "action": "navigate",
+            "target": "https://example.com",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:39.307549",
+          "end_time": "2026-01-16T08:14:39.794774",
+          "duration": 0.487225
+        },
+        {
+          "step": {
+            "name": "Screenshot Page 1",
+            "action": "screenshot",
+            "target": "nav_1",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "/root/payverse/qa_screenshots/nav_1_20260116_081439.png",
+          "start_time": "2026-01-16T08:14:39.794847",
+          "end_time": "2026-01-16T08:14:39.858823",
+          "duration": 0.063976
+        },
+        {
+          "step": {
+            "name": "Go to HTTPBin",
+            "action": "navigate",
+            "target": "https://httpbin.org",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:39.858848",
+          "end_time": "2026-01-16T08:14:44.367138",
+          "duration": 4.50829
+        },
+        {
+          "step": {
+            "name": "Screenshot Page 2",
+            "action": "screenshot",
+            "target": "nav_2",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "/root/payverse/qa_screenshots/nav_2_20260116_081444.png",
+          "start_time": "2026-01-16T08:14:44.367187",
+          "end_time": "2026-01-16T08:14:44.438304",
+          "duration": 0.071117
+        },
+        {
+          "step": {
+            "name": "Verify HTTPBin",
+            "action": "assert_text",
+            "target": "HTTP",
+            "value": null,
+            "timeout": null,
+            "critical": false,
+            "description": ""
+          },
+          "status": "passed",
+          "message": "",
+          "screenshot": "",
+          "start_time": "2026-01-16T08:14:44.438332",
+          "end_time": "2026-01-16T08:14:44.449734",
+          "duration": 0.011402
+        }
+      ],
+      "start_time": "2026-01-16T08:14:38.818541",
+      "end_time": "2026-01-16T08:14:44.605531",
+      "duration": 5.78699,
+      "passed_steps": 5,
+      "failed_steps": 0,
+      "total_steps": 5
+    }
+  ]
+}

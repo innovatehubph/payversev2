@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PayGram Telegram Link Decoder • B1</title>
+  <style>
+    :root {
+      --bg: #0f172a; /* slate-900 */
+      --panel: #111827; /* gray-900 */
+      --muted: #94a3b8; /* slate-400 */
+      --text: #e2e8f0; /* slate-200 */
+      --accent: #22d3ee; /* cyan-400 */
+      --ok: #22c55e; /* green-500 */
+      --warn: #f59e0b; /* amber-500 */
+      --err: #ef4444; /* red-500 */
+      --border: #1f2937; /* gray-800 */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0; background: var(--bg); color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    header { padding: 24px; border-bottom: 1px solid var(--border); background: #0b1220; }
+    h1 { margin: 0 0 6px; font-size: 20px; }
+    .sub { color: var(--muted); font-size: 13px; }
+    main { padding: 24px; display: grid; gap: 16px; max-width: 960px; margin: 0 auto; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input[type="text"], input[type="password"], select {
+      width: 100%; background: #0b1220; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      padding: 10px 12px; outline: none; font-size: 14px;
+    }
+    input[type="text"]::placeholder { color: #64748b; }
+    .row { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 720px) { .row.two { grid-template-columns: 1fr 1fr; } }
+    button {
+      background: linear-gradient(135deg, #0891b2, #22d3ee);
+      border: none; color: #08121f; font-weight: 700; padding: 10px 14px; border-radius: 8px; cursor: pointer;
+    }
+    button.secondary { background: #0b1220; color: var(--text); border: 1px solid var(--border); }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .kv { display: grid; grid-template-columns: 220px 1fr; gap: 8px; align-items: center; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); color: var(--muted); }
+    .log { background: #0b1220; border: 1px dashed var(--border); border-radius: 8px; padding: 10px; white-space: pre-wrap; font-size: 12px; color: #cbd5e1; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    .hr { height: 1px; background: var(--border); margin: 10px 0; }
+    footer { padding: 16px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PayGram Telegram Link Decoder</h1>
+    <div class="sub">Decode Telegram redeemUrl to UUID, then resolve invoiceCode and friendlyVoucherCode via InvoiceInfo. Token is used only in-browser and never displayed.</div>
+  </header>
+  <main>
+    <section class="card">
+      <div class="row">
+        <div>
+          <label for="tgurl">Telegram link (redeemUrl)</label>
+          <input id="tgurl" type="text" placeholder="https://telegram.me/opgmbot?start=..." />
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <label for="token">PayGram API token</label>
+          <input id="token" type="password" placeholder="paste your PayGram token (kept local)" autocomplete="off" />
+        </div>
+        <div>
+          <label for="host">API host</label>
+          <select id="host">
+            <option value="auto">Auto (try tgin then pubapi)</option>
+            <option value="https://tgin.pay-gram.org">tgin.pay-gram.org</option>
+            <option value="https://pubapi.paygr.am">pubapi.paygr.am</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:10px;">
+        <button id="btn-decode">1) Decode link</button>
+        <button id="btn-resolve" class="secondary">2) Resolve invoice + friendly code</button>
+        <span class="pill">Safe: read-only</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 style="margin:0 0 8px;">Decoded</h3>
+      <div class="kv"><div>Decoded payload</div><div class="mono" id="decoded">—</div></div>
+      <div class="kv"><div>UUID (invguid)</div><div class="mono" id="uuid">—</div></div>
+      <div class="kv"><div>Notes</div><div class="mono">We treat the decoded c=UUID as invguid for InvoiceInfo queries.</div></div>
+    </section>
+
+    <section class="card">
+      <h3 style="margin:0 0 8px;">InvoiceInfo result</h3>
+      <div class="kv"><div>Host tried</div><div class="mono" id="hostUsed">—</div></div>
+      <div class="kv"><div>HTTP status</div><div class="mono" id="http">—</div></div>
+      <div class="hr"></div>
+      <div class="kv"><div>invoiceCode</div><div class="mono" id="invoiceCode">—</div></div>
+      <div class="kv"><div>friendlyVoucherCode</div><div class="mono" id="friendly">—</div></div>
+      <div class="kv"><div>status</div><div class="mono" id="status">—</div></div>
+      <div class="kv"><div>amount</div><div class="mono" id="amount">—</div></div>
+      <div class="kv"><div>currencyCode</div><div class="mono" id="currency">—</div></div>
+      <div class="kv"><div>redeemUrl</div><div class="mono" id="redeemUrl">—</div></div>
+      <div class="hr"></div>
+      <div><div class="mono log" id="log">Logs will appear here…</div></div>
+    </section>
+  </main>
+  <footer>
+    Built by B1 for Boss Marc • Token is never printed; only used in-memory for API calls. If browser CORS blocks requests, use a simple proxy on your backend.
+  </footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function extractStart(u) {
+      try { return new URL(u).searchParams.get('start'); } catch(e) { return null; }
+    }
+    function b64urlDecode(s) {
+      if (!s) return '';
+      try {
+        s = decodeURIComponent(s);
+        s = s.replace(/-/g,'+').replace(/_/g,'/');
+        const pad = s.length % 4 ? 4 - (s.length % 4) : 0;
+        s += '='.repeat(pad);
+        return atob(s);
+      } catch(e) { return ''; }
+    }
+    function parseKV(str) {
+      const out = {};
+      (str||'').split('&').forEach(p => {
+        const i = p.indexOf('=');
+        if (i>0) out[p.slice(0,i)] = p.slice(i+1);
+      });
+      return out;
+    }
+    function maskToken(url, token) {
+      if (!token) return url;
+      return url.split(token).join('***TOKEN***');
+    }
+
+    async function fetchInvoiceInfo(host, token, qpKey, qpVal, accept='application/json') {
+      const url = `${host}/PayGramUsers/${token}/InvoiceInfo?${qpKey}=${encodeURIComponent(qpVal)}`;
+      const masked = maskToken(url, token);
+      appendLog(`GET ${masked} [Accept: ${accept}]`);
+      try {
+        const resp = await fetch(url, { headers: { 'Accept': accept } });
+        const text = await resp.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* some servers send text/plain */ }
+        // Minimal regex fallback for key fields
+        if (!json) {
+          const pick = (k) => (text.match(new RegExp('"'+k+'"\s*:\s*"([^"\\]+)"'))||[])[1]||null;
+          json = { 
+            invoiceCode: pick('invoiceCode'),
+            friendlyVoucherCode: pick('friendlyVoucherCode'),
+            status: pick('status'),
+            amount: pick('amount'),
+            currencyCode: pick('currencyCode'),
+            redeemUrl: pick('redeemUrl')
+          };
+        }
+        appendLog(`http_code=${resp.status}`);
+        appendLog(`raw_preview=${text.substring(0,300).replace(/\n/g,' ')}`);
+        return { status: resp.status, json, url: masked };
+      } catch (e) {
+        appendLog(`fetch error: ${e?.message||e}`, 'err');
+        return { status: 0, json: null, url: masked, error: e };
+      }
+    }
+
+    async function resolveViaSequence(host, token, uuid) {
+      // Try invguid JSON, then invguid text/plain, then voucherCode JSON
+      const seq = [
+        ['invguid','application/json'],
+        ['invguid','text/plain'],
+        ['voucherCode','application/json']
+      ];
+      for (const [k,accept] of seq) {
+        const r = await fetchInvoiceInfo(host, token, k, uuid, accept);
+        if (r.status === 200 && r.json) {
+          // Consider success when key fields appear or when invoiceCode not all-zero
+          const inv = r.json.invoiceCode || '';
+          const friend = r.json.friendlyVoucherCode || '';
+          const notZero = !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(inv);
+          if (friend || notZero) return { ...r, qpKey: k };
+        }
+      }
+      return null;
+    }
+
+    function setOut(id, val) { $(id).textContent = val ?? '—'; }
+    function appendLog(t, cls) {
+      const el = $('log');
+      const span = document.createElement('div');
+      if (cls) span.classList.add(cls);
+      span.textContent = t;
+      el.appendChild(span);
+    }
+    function clearLog() { $('log').innerHTML=''; }
+
+    $('btn-decode').addEventListener('click', () => {
+      clearLog();
+      const url = $('tgurl').value.trim();
+      const start = extractStart(url);
+      if (!start) { appendLog('No start parameter found in URL', 'warn'); return; }
+      const decoded = b64urlDecode(start);
+      const kv = parseKV(decoded);
+      const uuid = kv['c'] || '';
+      setOut('decoded', decoded || '(decode failed)');
+      setOut('uuid', uuid || '—');
+      if (!uuid) appendLog('Decoded payload missing c=UUID', 'warn');
+    });
+
+    $('btn-resolve').addEventListener('click', async () => {
+      clearLog();
+      const uuid = $('uuid').textContent.trim();
+      const token = $('token').value.trim();
+      const hostSel = $('host').value;
+      if (!uuid || uuid==='—') { appendLog('Decode first to get the UUID (invguid).', 'warn'); return; }
+      if (!token) { appendLog('Provide your PayGram API token to query InvoiceInfo.', 'warn'); return; }
+
+      const hosts = hostSel === 'auto' ? ['https://tgin.pay-gram.org','https://pubapi.paygr.am'] : [hostSel];
+      let result = null, usedHost = null;
+      for (const h of hosts) {
+        appendLog(`Trying host ${h} with invguid=${uuid}`);
+        result = await resolveViaSequence(h, token, uuid);
+        if (result) { usedHost = h; break; }
+      }
+      if (!result) {
+        setOut('hostUsed', hosts.join(' → '));
+        setOut('http', '—');
+        setOut('invoiceCode', '—');
+        setOut('friendly', '—');
+        setOut('status', '—');
+        setOut('amount', '—');
+        setOut('currency', '—');
+        setOut('redeemUrl', '—');
+        appendLog('Resolution failed. If you see CORS errors, run via a backend proxy.', 'err');
+        return;
+      }
+      const j = result.json || {};
+      setOut('hostUsed', usedHost + ` (${result.qpKey})`);
+      setOut('http', result.status);
+      setOut('invoiceCode', j.invoiceCode || '—');
+      setOut('friendly', j.friendlyVoucherCode || '—');
+      setOut('status', j.status ?? '—');
+      setOut('amount', j.amount ?? '—');
+      setOut('currency', j.currencyCode ?? '—');
+      setOut('redeemUrl', j.redeemUrl || '—');
+      appendLog('Done', 'ok');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+{
+  "colorScheme": "dark",
+  "fonts": [
+    {
+      "family": "Segoe UI",
+      "role": "body"
+    },
+    {
+      "family": "Noto Color Emoji",
+      "role": "body"
+    }
+  ],
+  "colors": {
+    "primary": "#37A000",
+    "accent": "#072E62",
+    "background": "#0D6469",
+    "textPrimary": "#FFFFFF",
+    "link": "#0D6469"
+  },
+  "typography": {
+    "fontFamilies": {
+      "primary": "Segoe UI",
+      "heading": "Segoe UI"
+    },
+    "fontStacks": {
+      "heading": [
+        "ui-sans-serif",
+        "system-ui",
+        "sans-serif",
+        "Apple Color Emoji",
+        "Segoe UI",
+        "Noto Color Emoji"
+      ],
+      "body": [
+        "ui-sans-serif",
+        "system-ui",
+        "sans-serif",
+        "Apple Color Emoji",
+        "Segoe UI",
+        "Noto Color Emoji"
+      ],
+      "paragraph": [
+        "ui-sans-serif",
+        "system-ui",
+        "sans-serif",
+        "Apple Color Emoji",
+        "Segoe UI",
+        "Noto Color Emoji"
+      ]
+    },
+    "fontSizes": {
+      "h1": "14px",
+      "h2": "14px",
+      "body": "16px"
+    }
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "borderRadius": "4px"
+  },
+  "components": {
+    "input": {
+      "background": "#FFFFFF",
+      "textColor": "#555555",
+      "borderColor": "#E4E5E7",
+      "borderRadius": "0px",
+      "borderRadiusCorners": {
+        "topLeft": "0px",
+        "topRight": "0px",
+        "bottomRight": "0px",
+        "bottomLeft": "0px"
+      },
+      "shadow": "none"
+    },
+    "buttonPrimary": {
+      "background": "#072E62",
+      "textColor": "#FFFFFF",
+      "borderColor": "#2E6DA4",
+      "borderRadius": "25px",
+      "borderRadiusCorners": {
+        "topLeft": "25px",
+        "topRight": "25px",
+        "bottomRight": "25px",
+        "bottomLeft": "25px"
+      },
+      "shadow": "none"
+    }
+  },
+  "images": {
+    "logo": "https://devtst-env.payverse.ph/Scripts/assets/global/img/payverse_logo_200x50_dark2.png",
+    "favicon": "https://devtst-env.payverse.ph/favicon.ico",
+    "ogImage": null
+  },
+  "__framework_hints": [
+    "bootstrap"
+  ],
+  "__llm_logo_reasoning": {
+    "selectedIndex": 0,
+    "reasoning": "Strong indicators: in header, no link (brand logos usually link to homepage, penalty), header location, visible, src contains logo, class contains logo, alt contains brand name \"PayVerse Wallet Login\", reasonable size. Score: 72 (clear winner by 72 points)",
+    "confidence": 0.9
+  },
+  "__llm_button_reasoning": {
+    "primary": {
+      "index": 0,
+      "text": "LOG IN",
+      "reasoning": "The button with text 'LOG IN' has a vibrant background color (#072E62) which is a strong indicator of being the primary CTA. It is also styled with the class 'btn-primary', which typically denotes the main action button on a page. The action-oriented text 'LOG IN' further supports its role as the primary button."
+    },
+    "secondary": {
+      "index": -1,
+      "text": "N/A",
+      "reasoning": "There are no other buttons present to serve as a secondary action. The only button available is the primary button, which does not allow for a valid secondary button selection."
+    },
+    "confidence": 0.95
+  },
+  "confidence": {
+    "buttons": 0.95,
+    "colors": 0.9,
+    "overall": 0.925
+  }
+}

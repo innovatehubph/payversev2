@@ -1,0 +1,694 @@
+import type { Express, Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
+import { storage } from "./storage";
+import { authMiddleware } from "./auth";
+import { balanceAdjustmentInputSchema, USER_ROLES, type UserRole } from "@shared/schema";
+import { transferFromAdminWallet, getUserPhptBalance } from "./paygram";
+
+const PAYGRAM_API_URL = "https://api.pay-gram.org";
+
+export const adminRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { message: "Too many admin requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id?.toString() || "anonymous",
+  validate: { xForwardedForHeader: false },
+});
+
+export const sensitiveActionRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { message: "Too many sensitive operations. Please wait before retrying." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id?.toString() || "anonymous",
+  validate: { xForwardedForHeader: false },
+});
+
+function generateRequestId(): number {
+  return -Math.floor(Math.random() * 9000000000) - 1000000000;
+}
+
+const ROLE_HIERARCHY: Record<UserRole, number> = {
+  super_admin: 100,
+  admin: 50,
+  support: 25,
+  user: 0
+};
+
+export function hasRole(userRole: string | undefined, requiredRole: UserRole): boolean {
+  const userLevel = ROLE_HIERARCHY[(userRole as UserRole) || "user"] || 0;
+  const requiredLevel = ROLE_HIERARCHY[requiredRole] || 0;
+  return userLevel >= requiredLevel;
+}
+
+export function isSuperAdmin(user: { role?: string }): boolean {
+  return user.role === "super_admin";
+}
+
+interface AuditMetadata {
+  ipAddress: string | null;
+  userAgent: string | null;
+  sessionId: string | null;
+  requestMethod: string;
+  requestPath: string;
+  riskLevel: "low" | "medium" | "high" | "critical";
+}
+
+const HIGH_RISK_ACTIONS = ["update_user", "balance_adjustment", "approve_deposit", "reject_deposit", "send_crypto"];
+const CRITICAL_ACTIONS = ["update_super_admin", "delete_user", "approve_large_amount"];
+
+export function getAuditMetadata(req: Request, action: string): AuditMetadata {
+  const ipAddress = req.ip || req.headers["x-forwarded-for"]?.toString() || null;
+  const userAgent = req.headers["user-agent"] || null;
+  const sessionId = (req as any).sessionID || null;
+  
+  let riskLevel: "low" | "medium" | "high" | "critical" = "low";
+  if (CRITICAL_ACTIONS.includes(action)) {
+    riskLevel = "critical";
+  } else if (HIGH_RISK_ACTIONS.includes(action)) {
+    riskLevel = "high";
+  } else if (action.includes("update") || action.includes("create")) {
+    riskLevel = "medium";
+  }
+  
+  return {
+    ipAddress,
+    userAgent,
+    sessionId,
+    requestMethod: req.method,
+    requestPath: req.originalUrl,
+    riskLevel
+  };
+}
+
+export async function adminMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  
+  // Check role-based access (admin or super_admin)
+  if (!hasRole(req.user.role, "admin") && !req.user.isAdmin) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  next();
+}
+
+export async function superAdminMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  
+  if (!isSuperAdmin(req.user)) {
+    return res.status(403).json({ message: "Super admin access required" });
+  }
+  
+  next();
+}
+
+function getAdminPaygramToken(): string | null {
+  return process.env.PAYGRAM_API_TOKEN || null;
+}
+
+export function registerAdminRoutes(app: Express) {
+  app.use("/api/admin", adminRateLimiter);
+  
+  app.get("/api/admin/stats", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const stats = await storage.getAdminStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Admin stats error:", error);
+      res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  app.get("/api/admin/users", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users.map((u: any) => {
+        const { password, ...userWithoutPassword } = u;
+        return userWithoutPassword;
+      }));
+    } catch (error: any) {
+      console.error("Admin users error:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.get("/api/admin/transactions", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const transactions = await storage.getAllTransactions();
+      res.json(transactions);
+    } catch (error: any) {
+      console.error("Admin transactions error:", error);
+      res.status(500).json({ message: "Failed to fetch transactions" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { isActive, isAdmin, kycStatus, role } = req.body;
+      
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Protect super_admin from being modified by non-super admins
+      if (targetUser.role === "super_admin" && !isSuperAdmin(req.user!)) {
+        return res.status(403).json({ message: "Cannot modify super admin account" });
+      }
+      
+      // Only super admin can change roles
+      if (role !== undefined && role !== targetUser.role) {
+        if (!isSuperAdmin(req.user!)) {
+          return res.status(403).json({ message: "Only super admin can change user roles" });
+        }
+        // Prevent setting another super_admin (only one super admin allowed via seed)
+        if (role === "super_admin") {
+          return res.status(403).json({ message: "Cannot create additional super admin accounts" });
+        }
+      }
+      
+      // Prevent self-demotion for super admin
+      if (userId === req.user!.id && isSuperAdmin(req.user!)) {
+        if (role && role !== "super_admin") {
+          return res.status(403).json({ message: "Cannot demote your own super admin account" });
+        }
+        if (isActive === false) {
+          return res.status(403).json({ message: "Cannot deactivate your own super admin account" });
+        }
+      }
+      
+      const previousValue = JSON.stringify({ 
+        isActive: targetUser.isActive, 
+        isAdmin: targetUser.isAdmin, 
+        kycStatus: targetUser.kycStatus,
+        role: targetUser.role 
+      });
+      
+      await storage.updateUserAdmin(userId, { isActive, isAdmin, kycStatus, role });
+      
+      const auditMeta = getAuditMetadata(req, "update_user");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "update_user",
+        targetType: "user",
+        targetId: userId,
+        details: `Updated user: isActive=${isActive}, isAdmin=${isAdmin}, kycStatus=${kycStatus}, role=${role}`,
+        previousValue,
+        newValue: JSON.stringify({ isActive, isAdmin, kycStatus, role }),
+        ...auditMeta
+      });
+      
+      res.json({ success: true, message: "User updated" });
+    } catch (error: any) {
+      console.error("Admin update user error:", error);
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  app.get("/api/admin/users/search", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const query = (req.query.q as string) || "";
+      const users = await storage.searchUsersAdmin(query);
+      res.json(users.map((u: any) => {
+        const { password, ...userWithoutPassword } = u;
+        return userWithoutPassword;
+      }));
+    } catch (error: any) {
+      console.error("Admin search users error:", error);
+      res.status(500).json({ message: "Failed to search users" });
+    }
+  });
+
+  app.get("/api/admin/transactions/search", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const filters = {
+        userId: req.query.userId ? parseInt(req.query.userId as string) : undefined,
+        status: req.query.status as string | undefined,
+        type: req.query.type as string | undefined
+      };
+      const transactions = await storage.searchTransactionsAdmin(filters);
+      res.json(transactions);
+    } catch (error: any) {
+      console.error("Admin search transactions error:", error);
+      res.status(500).json({ message: "Failed to search transactions" });
+    }
+  });
+
+  app.get("/api/admin/kyc/pending", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const users = await storage.getPendingKycUsers();
+      res.json(users.map((u: any) => {
+        const { password, ...userWithoutPassword } = u;
+        return userWithoutPassword;
+      }));
+    } catch (error: any) {
+      console.error("Admin KYC pending error:", error);
+      res.status(500).json({ message: "Failed to fetch pending KYC" });
+    }
+  });
+
+  app.get("/api/admin/kyc/:userId/documents", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const documents = await storage.getKycDocumentsByUserId(userId);
+      res.json(documents);
+    } catch (error: any) {
+      console.error("Admin KYC documents error:", error);
+      res.status(500).json({ message: "Failed to fetch KYC documents" });
+    }
+  });
+
+  app.post("/api/admin/kyc/:userId/approve", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      await storage.updateUserAdmin(userId, { kycStatus: "verified" });
+      
+      const auditMeta = getAuditMetadata(req, "kyc_approve");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "kyc_approve",
+        targetType: "user",
+        targetId: userId,
+        details: "Approved KYC verification",
+        previousValue: "pending",
+        newValue: "verified",
+        ...auditMeta
+      });
+      
+      res.json({ success: true, message: "KYC approved" });
+    } catch (error: any) {
+      console.error("Admin KYC approve error:", error);
+      res.status(500).json({ message: "Failed to approve KYC" });
+    }
+  });
+
+  app.post("/api/admin/kyc/:userId/reject", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { reason } = req.body;
+      
+      await storage.updateUserAdmin(userId, { kycStatus: "rejected" });
+      
+      const auditMeta = getAuditMetadata(req, "kyc_reject");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "kyc_reject",
+        targetType: "user",
+        targetId: userId,
+        details: `Rejected KYC: ${reason || "No reason provided"}`,
+        previousValue: "pending",
+        newValue: "rejected",
+        ...auditMeta
+      });
+      
+      res.json({ success: true, message: "KYC rejected" });
+    } catch (error: any) {
+      console.error("Admin KYC reject error:", error);
+      res.status(500).json({ message: "Failed to reject KYC" });
+    }
+  });
+
+  app.post("/api/admin/balance/adjust", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const result = balanceAdjustmentInputSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      
+      const { userId, amount, adjustmentType, reason } = result.data;
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const adjustmentAmount = parseFloat(amount);
+      const previousPhptBalance = parseFloat(user.phptBalance || "0");
+      
+      // For CREDIT operations, simply transfer PHPT from admin escrow to user
+      if (adjustmentType === "credit") {
+        const userCliId = user.username || user.email;
+        if (!userCliId) {
+          return res.status(400).json({ message: "User has no wallet identifier" });
+        }
+        
+        // Transfer PHPT from admin escrow to user via PayGram
+        console.log(`[Admin Credit] Transferring ${adjustmentAmount} PHPT from escrow to ${userCliId}`);
+        const transferResult = await transferFromAdminWallet(userCliId, adjustmentAmount);
+        
+        if (!transferResult.success) {
+          console.error(`[Admin Credit] PayGram transfer failed:`, transferResult.message);
+          return res.status(400).json({ 
+            message: `Transfer failed: ${transferResult.message}` 
+          });
+        }
+        
+        console.log(`[Admin Credit] PayGram transfer successful: ${transferResult.transactionId}`);
+      }
+      
+      // Calculate new balance for audit purposes
+      // adjustBalanceWithAudit will update the database balance in a transaction
+      let newPhptBalance: number;
+      if (adjustmentType === "debit" || adjustmentType === "fee") {
+        newPhptBalance = previousPhptBalance - Math.abs(adjustmentAmount);
+        
+        if (newPhptBalance < 0) {
+          return res.status(400).json({ message: "Resulting PHPT balance cannot be negative" });
+        }
+        // Note: Debits are local adjustments only (corrections, fees)
+        // adjustBalanceWithAudit below will update the balance
+      } else {
+        // Credit - PayGram transfer was done above, adjustBalanceWithAudit will update local balance
+        newPhptBalance = previousPhptBalance + Math.abs(adjustmentAmount);
+      }
+      
+      // Record the adjustment with audit trail
+      const { adjustment } = await storage.adjustBalanceWithAudit({
+        adminId: req.user!.id,
+        userId,
+        amount: adjustmentAmount.toFixed(2),
+        adjustmentType,
+        reason,
+        previousBalance: previousPhptBalance.toFixed(2),
+        newBalance: newPhptBalance.toFixed(2),
+        ipAddress: req.ip || null
+      });
+      
+      res.json({ success: true, adjustment, newBalance: newPhptBalance.toFixed(2) });
+    } catch (error: any) {
+      console.error("Admin balance adjustment error:", error);
+      res.status(500).json({ message: "Failed to adjust balance" });
+    }
+  });
+
+  app.get("/api/admin/balance/adjustments", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const adjustments = await storage.getBalanceAdjustments();
+      res.json(adjustments);
+    } catch (error: any) {
+      console.error("Admin get adjustments error:", error);
+      res.status(500).json({ message: "Failed to fetch adjustments" });
+    }
+  });
+
+  // Sync user's PayGram balance to local database
+  app.post("/api/admin/users/:id/sync-balance", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      
+      const userCliId = user.username || user.email;
+      if (!userCliId) {
+        return res.status(400).json({ success: false, message: "User has no wallet identifier" });
+      }
+      
+      // Fetch balance from PayGram
+      const balanceResult = await getUserPhptBalance(userCliId);
+      
+      if (!balanceResult.success) {
+        return res.status(503).json({ 
+          success: false, 
+          message: `Failed to fetch PayGram balance: ${balanceResult.message}` 
+        });
+      }
+      
+      const previousBalance = parseFloat(user.phptBalance || "0") || 0;
+      const newBalance = isNaN(balanceResult.balance) ? 0 : balanceResult.balance;
+      
+      // Update local database to match PayGram
+      // Use direct update since this is a sync, not a credit/debit
+      await storage.syncPhptBalance(userId, newBalance);
+      
+      console.log(`[Admin] Synced balance for user ${userId} (${userCliId}): ${previousBalance} → ${newBalance} PHPT`);
+      
+      res.json({ 
+        success: true, 
+        previousBalance: previousBalance.toFixed(2),
+        newBalance: newBalance.toFixed(2),
+        message: `Balance synced from PayGram: ${newBalance.toFixed(2)} PHPT`
+      });
+    } catch (error: any) {
+      console.error("Admin sync balance error:", error);
+      res.status(500).json({ success: false, message: "Failed to sync balance" });
+    }
+  });
+
+  // Sync all users' PayGram balances (batch operation)
+  app.post("/api/admin/users/sync-all-balances", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const results: { userId: number; username: string; success: boolean; balance?: number; error?: string }[] = [];
+      
+      for (const user of allUsers) {
+        const userCliId = user.username || user.email;
+        if (!userCliId) {
+          results.push({ userId: user.id, username: user.username || "unknown", success: false, error: "No wallet ID" });
+          continue;
+        }
+        
+        try {
+          const balanceResult = await getUserPhptBalance(userCliId);
+          
+          if (balanceResult.success) {
+            await storage.syncPhptBalance(user.id, balanceResult.balance);
+            results.push({ userId: user.id, username: user.username || userCliId, success: true, balance: balanceResult.balance });
+          } else {
+            results.push({ userId: user.id, username: user.username || userCliId, success: false, error: balanceResult.message });
+          }
+        } catch (err: any) {
+          results.push({ userId: user.id, username: user.username || userCliId, success: false, error: err.message });
+        }
+        
+        // Rate limit: small delay between API calls
+        await new Promise(r => setTimeout(r, 100));
+      }
+      
+      const successCount = results.filter(r => r.success).length;
+      console.log(`[Admin] Bulk balance sync: ${successCount}/${allUsers.length} users synced`);
+      
+      res.json({ 
+        success: true, 
+        totalUsers: allUsers.length,
+        synced: successCount,
+        failed: allUsers.length - successCount,
+        results
+      });
+    } catch (error: any) {
+      console.error("Admin bulk sync error:", error);
+      res.status(500).json({ success: false, message: "Failed to sync balances" });
+    }
+  });
+
+  app.get("/api/admin/audit-logs", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const logs = await storage.getAdminAuditLogs();
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Admin audit logs error:", error);
+      res.status(500).json({ message: "Failed to fetch audit logs" });
+    }
+  });
+
+  // Get escrow account balance (admin@payverse.ph) - used for all PHPT operations
+  app.get("/api/admin/crypto/balances", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    const token = getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ 
+        message: "PayGram admin not configured",
+        code: "ADMIN_TOKEN_MISSING"
+      });
+    }
+    
+    // Use the escrow account ID (admin@payverse.ph) for balance check
+    const escrowAccountId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+    
+    try {
+      const response = await fetch(`${PAYGRAM_API_URL}/${token}/UserInfo`, {
+        method: "POST",
+        headers: { 
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: escrowAccountId
+        })
+      });
+      const data = await response.json();
+      
+      // Parse coins/balances from PayGram response
+      const coinsArray = data.coins || data.balances || [];
+      const wallets = coinsArray.map((b: any) => ({
+        currencyCode: b.currency || b.currencyCode,
+        balance: b.balance || b.amount || "0"
+      }));
+      
+      // Find PHPT balance specifically
+      const phptWallet = wallets.find((w: any) => w.currencyCode === 11);
+      const phptBalance = phptWallet?.balance || "0";
+      
+      res.json({ 
+        success: true, 
+        escrowAccount: escrowAccountId,
+        phptBalance,
+        wallets, 
+        rawResponse: data 
+      });
+    } catch (error: any) {
+      console.error("Admin PayGram balances error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/crypto/exchange-rates", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    const token = getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ message: "PayGram admin not configured" });
+    }
+    
+    try {
+      const response = await fetch(`${PAYGRAM_API_URL}/${token}/GetExchangeRates`, {
+        method: "POST",
+        headers: { 
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Admin PayGram rates error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Send PHPT from escrow account to a PayGram user
+  app.post("/api/admin/crypto/send", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    const token = getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ message: "PayGram admin not configured" });
+    }
+    
+    // Use the escrow account ID (admin@payverse.ph) as sender
+    const escrowAccountId = process.env.ADMIN_PAYGRAM_CLI_ID || "admin@payverse.ph";
+    
+    try {
+      const { telegramId, amount, currency } = req.body;
+
+      const response = await fetch(`${PAYGRAM_API_URL}/${token}/TransferCredit`, {
+        method: "POST",
+        headers: { 
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: escrowAccountId,
+          toUserCliId: telegramId,
+          currencyCode: currency || 11,
+          amount: parseFloat(amount)
+        })
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Admin PayGram send error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/crypto/invoice", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    const token = getAdminPaygramToken();
+    if (!token) {
+      return res.status(503).json({ message: "PayGram admin not configured" });
+    }
+    
+    try {
+      const { amount, currency, callbackData } = req.body;
+
+      const response = await fetch(`${PAYGRAM_API_URL}/${token}/IssueInvoice`, {
+        method: "POST",
+        headers: { 
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: generateRequestId(),
+          userCliId: "admin",
+          currencyCode: currency || 11,
+          amount: parseFloat(amount),
+          merchantType: 0,
+          callbackData: callbackData
+        })
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Admin PayGram invoice error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin top-up: Credit PHPT to user after NexusPay QRPH payment
+  // This is used when users pay via QRPH and admin credits their wallet from the pre-funded PHPT pool
+  // Uses transactional operation for atomicity
+  app.post("/api/admin/topup-user", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { userId, amount, reference, paymentMethod } = req.body;
+      const topupAmount = parseFloat(amount);
+      
+      if (isNaN(topupAmount) || topupAmount <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid amount" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      
+      const previousPhptBalance = user.phptBalance || "0";
+      
+      // Use transactional top-up for atomicity
+      const result = await storage.topupUserWithAudit({
+        adminId: req.user!.id,
+        userId,
+        amount: topupAmount,
+        paymentMethod: paymentMethod || 'NexusPay',
+        reference: reference || null,
+        previousBalance: previousPhptBalance,
+        ipAddress: req.ip || null
+      });
+      
+      console.log(`Admin top-up: ${topupAmount} PHPT credited to user ${userId} (${user.username})`);
+      
+      res.json({ 
+        success: true, 
+        message: `Credited ${topupAmount} PHPT to ${user.username}`,
+        newBalance: result.newTotalBalance,
+        newPhptBalance: result.newPhptBalance
+      });
+    } catch (error: any) {
+      console.error("Admin top-up error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  console.log("Admin routes registered");
+}

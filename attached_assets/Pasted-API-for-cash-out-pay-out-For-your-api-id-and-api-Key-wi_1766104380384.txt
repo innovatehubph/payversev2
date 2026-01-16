@@ -1,0 +1,223 @@
+API for cash out / pay out
+ 
+
+For your api id and api Key will be given via email.
+
+GET: CSRF Token
+Endpoints:
+
+https://nexuspay.cloud/api/csrf_token
+
+This will get a CSRF token.
+
+Example Request
+curl --location 'https://nexuspay.cloud/api/csrf_token'
+
+Example Response
+No response body.
+This request doesn't return any response body.
+
+POST: Login
+Endpoint:
+https://nexuspay.cloud/api/create/login
+
+Login process must include a valid CSRF token.
+Generate QRPH insert token on header as Authorization Bearer.
+
+Headers
+X-CSRF-TOKEN: 809c6d5d501abba21d681ee47ab9000bf70be72b32d3ab1f6eaa993940c607ef
+
+Body (raw JSON)
+{
+   "username": "nexuspay",
+   "password": "password will be provide "
+}
+
+Example Request
+curl --location 'https://nexuspay.cloud/api/create/login' \
+--header 'X-CSRF-TOKEN: 9b9281ffba47409f70d0155a6905b0ff5e8c6a65454c32bdacab20f21ff2df75' \
+--data '{
+   "username":"<username_provide>",
+   "password":"<password_provide>"
+}'
+
+Example Response
+{
+ "status": "success",
+ "message": "Logged in successfully.",
+ "data": {
+   "username": "nexuspay",
+   "token": "af9f6a26dc42f626eead92b373b1f23dab016aa24d08296f1da392e2d508c853f5411a0cc9ee12740341f51f1eec6a9s"
+ }
+}
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+POST: Cash out  / Pay out
+Process on encrypted Pay load
+
+JSON payload
+ 
+
+{
+
+   "code": "0093",
+
+   "account_number": "09058082222",
+
+   "name": "Resicept name",
+
+   "amount": 100,
+
+}
+
+ 
+
+Your Merchant ID will be on IV and your Merchant key will be your Secret key
+
+Your Merchant ID and Key you will be given via email
+
+Note: Make Sure your Merchant ID and Key is Secured
+
+ 
+
+Example PHP code on
+
+Endpoint:
+https://nexuspay.cloud/api/create_pay_out
+
+Headers
+token will be your Authorization: Bearer
+
+Authorization: Bearer f2ebd712a6f072ea1915b98b5908789b271d0676d5171a795b823fad59387409ecd2f6ed2ff87d260245a8272141e8f8
+
+your encrypted header
+
+Example
+X-data: N6V2v2TmDpHqvVYgkw2pF2/yZRr5JL2ggeaQtYDdye1JOdZWaMGDzrAQBnaBqQUCtV7e/lbvTVIkHCr19tg5lHdljxGFEklfP/LMSRdpcPQ/h9BgRzjuN8X21fQvipdeu9I+vc67YCDfdQUHuiE3YV/EqkkUwI+Ec+sC/CVu9PCuWyS16VtsyfOutIMx8RNe
+
+X-code: 0093
+
+Example Response
+{
+
+    "status": "successful",
+
+    "payoutlink": "https://nexuspay.cloud/api/payout/328a907147011dd9ae2f8b8effa7d805"
+
+}
+
+GET: Payout /Cash in
+
+After you Generate Payout / Cash in Link
+
+
+End Point : https://nexuspay.cloud/api/payout/328a907147011dd9ae2f8b8effa7d805
+
+ 
+
+Example Response
+{
+
+    "status": "success",
+
+    "message": "Successfully Processed",
+
+    "data": {
+
+        "transaction_id": "AI202505261256298103",
+
+        "payout_gateway": "G-Xchange / GCash"
+
+    }
+
+}
+
+GET: Payout /Cash in Status
+
+ End point Example https://nexuspay.cloud/api/payoutstatus/078a3f4e97899d613adaf247a9fc374b
+
+Example Response
+{
+
+    "status": "success",
+
+    "message": "Successfully Processed",
+
+    "data": {
+
+        "transaction_id": "AI202505261256298103",
+
+        "payout_gateway": "G-Xchange / GCash"
+
+    }
+
+}
+
+
+
+X-code Guide
+
+X-code: 0093  
+
+G-Xchange / GCash
+
+ 
+
+X-code: 0483
+
+Maya Philippines, Inc.
+
+ 
+
+X-code: 7031
+
+Maya Bank, Inc.
+
+ 
+
+X-code: 7003
+
+GrabPay
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+ 
+
+ 

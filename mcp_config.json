@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "/root/payverse/venv/bin/python",
+      "args": ["/root/payverse/mcp_browser_server.py"],
+      "env": {
+        "DISPLAY": ":0"
+      }
+    }
+  }
+}

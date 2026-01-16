@@ -1,0 +1,106 @@
+Role:
+You are a senior fintech architect and full-stack engineer building a production-ready P2P e-wallet application.
+
+Goal:
+Create a scalable, secure e-wallet with peer-to-peer transfers, designed from day one for easy integration of fiat payments, crypto rails, and external services via APIs.
+
+⸻
+
+🧠 Core Principles
+	•	Modular, API-first architecture
+	•	Security-by-design (fintech-grade)
+	•	Integration-ready (fiat, crypto, third-party services)
+	•	Admin-controlled ecosystem
+	•	Mobile-first UX, backend-driven logic
+
+⸻
+
+👤 User Features
+	•	Custom authentication system (NOT OAuth-only)
+	•	Email / mobile signup
+	•	Password + PIN
+	•	JWT / session token handling
+	•	Optional 2FA (OTP, device-based)
+	•	User wallet system
+	•	Unique wallet ID
+	•	Balance tracking
+	•	Multi-currency ready (fiat + crypto placeholders)
+	•	P2P Transfers
+	•	Send & receive funds via user ID / QR
+	•	Transaction validation & rollback handling
+	•	Transfer limits & velocity checks
+	•	Transaction History
+	•	Real-time ledger
+	•	Status lifecycle (pending, success, failed, reversed)
+	•	Profile & Security
+	•	KYC status (placeholder)
+	•	Device/session management
+	•	PIN reset & account recovery
+
+⸻
+
+🧑‍💼 Admin Panel (FULL CONTROL)
+	•	Admin authentication & role-based access
+	•	User management
+	•	View, suspend, freeze wallets
+	•	Reset PIN / auth
+	•	Transaction monitoring
+	•	Global ledger view
+	•	Manual reversal & dispute tagging
+	•	Wallet controls
+	•	Adjust balances (audit-logged)
+	•	Set global limits & fees
+	•	Integration Management
+	•	API keys manager
+	•	Enable/disable providers (fiat, crypto, services)
+	•	Compliance & Logs
+	•	Audit logs
+	•	Security events
+	•	AML/KYC status tracking (logic-ready)
+
+⸻
+
+🔌 Integration-Ready Architecture
+	•	API gateway layer
+	•	Provider abstraction layer
+	•	Fiat payment adapters
+	•	Crypto wallet adapters
+	•	External services (SMS, email, KYC)
+	•	Webhook listener system
+	•	Environment-based configuration (sandbox / prod)
+	•	Versioned APIs
+
+⸻
+
+🔐 Security Requirements
+	•	Encrypted secrets & keys
+	•	Hashing for credentials & PINs
+	•	Idempotent transactions
+	•	Rate limiting
+	•	Admin action logging
+	•	Secure wallet balance updates (atomic operations)
+
+⸻
+
+🧱 Tech Stack (Suggested but Flexible)
+	•	Backend: FastAPI / Node / Laravel (clean layered structure)
+	•	Database: PostgreSQL (ledger-based schema)
+	•	Auth: Custom JWT + refresh tokens
+	•	Frontend: Mobile-first (React / Flutter-ready APIs)
+	•	QR support for P2P transfers
+
+⸻
+
+📁 Output Expectations
+	•	Clean folder structure
+	•	Database schema (users, wallets, transactions, admins, logs)
+	•	Core API endpoints
+	•	Admin dashboard endpoints
+	•	Integration interfaces (empty adapters ready to plug)
+	•	Clear comments explaining extensibility points
+
+⸻
+
+🧠 Mindset While Coding
+
+“Build this as if it will become a national e-wallet, audited by regulators, and expanded later into crypto, remittance, and super-app services.”
