@@ -209,6 +209,58 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Update user email (admin only)
+  app.patch("/api/admin/users/:id/email", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { email } = req.body;
+
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: "Invalid email format" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if email is already taken by another user
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(400).json({ message: "Email already in use by another user" });
+      }
+
+      const previousEmail = user.email;
+      await storage.updateUserEmail(userId, email);
+
+      // Create audit log
+      const auditMeta = getAuditMetadata(req, "update_user_email");
+      await storage.createAdminAuditLog({
+        adminId: req.user!.id,
+        action: "update_user_email",
+        targetType: "user",
+        targetId: userId,
+        details: `Changed email from ${previousEmail} to ${email}`,
+        previousValue: previousEmail,
+        newValue: email,
+        ...auditMeta
+      });
+
+      console.log(`[Admin] User ${req.user!.id} changed email for user ${userId}: ${previousEmail} -> ${email}`);
+
+      res.json({ success: true, message: "Email updated successfully", previousEmail, newEmail: email });
+    } catch (error: any) {
+      console.error("Admin update user email error:", error);
+      res.status(500).json({ message: "Failed to update email" });
+    }
+  });
+
   app.get("/api/admin/users/search", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
     try {
       const query = (req.query.q as string) || "";

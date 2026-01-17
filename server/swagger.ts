@@ -2166,6 +2166,68 @@ const options: swaggerJsdoc.Options = {
             "200": { description: "PIN reset, user must set up new PIN" }
           }
         }
+      },
+      "/api/admin/users/{id}/email": {
+        patch: {
+          tags: ["Admin"],
+          summary: "Update user's email address",
+          description: "Admin-only endpoint to update a user's email address with validation and audit logging",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "integer" }, description: "User ID" }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["email"],
+                  properties: {
+                    email: { type: "string", format: "email", description: "New email address" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Email updated successfully", content: { "application/json": { schema: { type: "object", properties: { success: { type: "boolean" }, message: { type: "string" }, previousEmail: { type: "string" }, newEmail: { type: "string" } } } } } },
+            "400": { description: "Invalid email or email already in use" },
+            "404": { description: "User not found" }
+          }
+        }
+      },
+      "/api/admin/nexuspay/balance": {
+        get: {
+          tags: ["Admin"],
+          summary: "Get NexusPay merchant wallet balance",
+          description: "Read-only endpoint to check the NexusPay merchant wallet balance for QRPH cash-out operations. Does not affect any transactions.",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Balance retrieved successfully",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      username: { type: "string", description: "NexusPay merchant username" },
+                      email: { type: "string", description: "Merchant email" },
+                      walletBalance: { type: "number", description: "Available balance in PHP" },
+                      walletBalanceFormatted: { type: "string", description: "Formatted balance with peso sign" },
+                      totalAmountFailed: { type: "number" },
+                      totalAmount: { type: "number" },
+                      message: { type: "string" }
+                    }
+                  }
+                }
+              }
+            },
+            "403": { description: "Admin access required" },
+            "500": { description: "Failed to fetch balance" }
+          }
+        }
       }
     }
   },

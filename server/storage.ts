@@ -1234,6 +1234,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId));
   }
 
+  async updateUserEmail(userId: number, email: string): Promise<void> {
+    await db.update(users)
+      .set({ email })
+      .where(eq(users.id, userId));
+  }
+
   async updateUserLastLogin(userId: number, ipAddress: string | null): Promise<void> {
     await db.update(users)
       .set({ 

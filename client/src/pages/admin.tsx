@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import {
   Users,
   ArrowUpDown,
+  ArrowDownLeft,
+  ArrowUpRight,
   Bitcoin,
   RefreshCw,
   Shield,
@@ -183,6 +185,11 @@ export default function Admin() {
   const [allWithdrawals, setAllWithdrawals] = useState<any[]>([]);
   const [processingWithdrawal, setProcessingWithdrawal] = useState<number | null>(null);
   const [withdrawalRejectReason, setWithdrawalRejectReason] = useState("");
+
+  // Manual Transaction Detail Modal state
+  const [selectedManualTx, setSelectedManualTx] = useState<any | null>(null);
+  const [manualTxModalOpen, setManualTxModalOpen] = useState(false);
+  const [manualTxFilter, setManualTxFilter] = useState<"all" | "deposits" | "withdrawals">("all");
 
   // Telegram Topup/Cashout state
   const [telegramUserId, setTelegramUserId] = useState("");
@@ -977,7 +984,7 @@ export default function Admin() {
       )}
 
       <Tabs defaultValue="users" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-10">
+        <TabsList className="grid w-full grid-cols-9">
           <TabsTrigger value="users" data-testid="tab-users">
             <Users className="h-4 w-4 mr-1" />
             <span className="hidden sm:inline">Users</span>
@@ -994,9 +1001,14 @@ export default function Admin() {
             <DollarSign className="h-4 w-4 mr-1" />
             <span className="hidden sm:inline">Balance</span>
           </TabsTrigger>
-          <TabsTrigger value="p2p" data-testid="tab-p2p">
-            <Upload className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">P2P</span>
+          <TabsTrigger value="manual" data-testid="tab-manual">
+            <Building2 className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Manual</span>
+            {(pendingDeposits.length + pendingWithdrawals.length) > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                {pendingDeposits.length + pendingWithdrawals.length}
+              </Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="qrph" data-testid="tab-qrph">
             <Smartphone className="h-4 w-4 mr-1" />
@@ -1018,15 +1030,6 @@ export default function Admin() {
           <TabsTrigger value="audit" data-testid="tab-audit">
             <History className="h-4 w-4 mr-1" />
             <span className="hidden sm:inline">Logs</span>
-          </TabsTrigger>
-          <TabsTrigger value="withdrawals" data-testid="tab-withdrawals">
-            <ArrowUpDown className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">Withdrawals</span>
-            {pendingWithdrawals.length > 0 && (
-              <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                {pendingWithdrawals.length}
-              </Badge>
-            )}
           </TabsTrigger>
         </TabsList>
 
@@ -1342,59 +1345,49 @@ export default function Admin() {
           </div>
         </TabsContent>
 
-        <TabsContent value="p2p">
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5" />
+        <TabsContent value="manual">
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Left Side: Payment Methods */}
+            <Card className="lg:col-span-1">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Building2 className="h-4 w-4" />
                   Payment Methods
                 </CardTitle>
-                <CardDescription>Manage accounts where users send payments</CardDescription>
+                <CardDescription className="text-xs">Manage receiving accounts</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3 max-h-[300px] overflow-y-auto">
+              <CardContent className="space-y-3">
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
                   {paymentMethods.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-4">No payment methods yet</p>
+                    <p className="text-muted-foreground text-center py-3 text-sm">No methods yet</p>
                   ) : (
                     paymentMethods.map((method: any) => (
-                      <div key={method.id} className="p-3 rounded-lg border flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={method.isActive ? "default" : "secondary"}>
+                      <div key={method.id} className="p-2 rounded-lg border flex justify-between items-center text-sm">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant={method.isActive ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
                               {method.providerType}
                             </Badge>
-                            <span className="font-medium">{method.label}</span>
+                            <span className="font-medium truncate">{method.label}</span>
                           </div>
-                          <p className="text-sm text-muted-foreground">{method.accountName}</p>
-                          <p className="text-sm font-mono">{method.accountNumber}</p>
+                          <p className="text-xs text-muted-foreground truncate">{method.accountNumber}</p>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => handleDeletePaymentMethod(method.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDeletePaymentMethod(method.id)}>
+                          <Trash2 className="h-3.5 w-3.5 text-red-500" />
                         </Button>
                       </div>
                     ))
                   )}
                 </div>
-                
-                <div className="border-t pt-4 space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Plus className="h-4 w-4" /> Add Payment Method
+
+                <div className="border-t pt-3 space-y-2">
+                  <h4 className="font-medium text-sm flex items-center gap-1.5">
+                    <Plus className="h-3.5 w-3.5" /> Add Method
                   </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      placeholder="Label (e.g. GCash Main)"
-                      value={newMethodLabel}
-                      onChange={(e) => setNewMethodLabel(e.target.value)}
-                    />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Input placeholder="Label" value={newMethodLabel} onChange={(e) => setNewMethodLabel(e.target.value)} className="h-8 text-sm" />
                     <Select value={newMethodType} onValueChange={setNewMethodType}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="gcash">GCash</SelectItem>
                         <SelectItem value="maya">Maya</SelectItem>
@@ -1404,172 +1397,301 @@ export default function Admin() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Input
-                    placeholder="Account Name"
-                    value={newMethodAccount}
-                    onChange={(e) => setNewMethodAccount(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Account Number"
-                    value={newMethodNumber}
-                    onChange={(e) => setNewMethodNumber(e.target.value)}
-                  />
-                  <Textarea
-                    placeholder="Instructions (optional)"
-                    value={newMethodInstructions}
-                    onChange={(e) => setNewMethodInstructions(e.target.value)}
-                  />
-                  <Button 
-                    onClick={handleAddPaymentMethod}
-                    disabled={addingMethod}
-                    className="w-full"
-                  >
-                    {addingMethod ? "Adding..." : "Add Payment Method"}
+                  <Input placeholder="Account Name" value={newMethodAccount} onChange={(e) => setNewMethodAccount(e.target.value)} className="h-8 text-sm" />
+                  <Input placeholder="Account Number" value={newMethodNumber} onChange={(e) => setNewMethodNumber(e.target.value)} className="h-8 text-sm" />
+                  <Button onClick={handleAddPaymentMethod} disabled={addingMethod} className="w-full h-8 text-sm">
+                    {addingMethod ? "Adding..." : "Add"}
                   </Button>
                 </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Pending Deposits
-                  {pendingDeposits.length > 0 && (
-                    <Badge variant="destructive">{pendingDeposits.length}</Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>Review and approve user deposit requests</CardDescription>
+            {/* Right Side: Combined Transactions List */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <ArrowUpDown className="h-4 w-4" />
+                      Transactions
+                      {(pendingDeposits.length + pendingWithdrawals.filter(w => w.status === "pending" || w.status === "processing").length) > 0 && (
+                        <Badge variant="destructive" className="text-xs">
+                          {pendingDeposits.length + pendingWithdrawals.filter(w => w.status === "pending" || w.status === "processing").length}
+                        </Badge>
+                      )}
+                    </CardTitle>
+                    <CardDescription className="text-xs">Click to view details and take action</CardDescription>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant={manualTxFilter === "all" ? "default" : "outline"} size="sm" className="h-7 text-xs px-2" onClick={() => setManualTxFilter("all")}>All</Button>
+                    <Button variant={manualTxFilter === "deposits" ? "default" : "outline"} size="sm" className="h-7 text-xs px-2" onClick={() => setManualTxFilter("deposits")}>
+                      Deposits {pendingDeposits.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{pendingDeposits.length}</Badge>}
+                    </Button>
+                    <Button variant={manualTxFilter === "withdrawals" ? "default" : "outline"} size="sm" className="h-7 text-xs px-2" onClick={() => setManualTxFilter("withdrawals")}>
+                      Withdrawals {pendingWithdrawals.filter(w => w.status === "pending" || w.status === "processing").length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{pendingWithdrawals.filter(w => w.status === "pending" || w.status === "processing").length}</Badge>}
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4 max-h-[500px] overflow-y-auto">
-                  {pendingDeposits.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">No pending deposits</p>
-                  ) : (
-                    pendingDeposits.map((deposit: any) => (
-                      <div key={deposit.id} className="p-4 rounded-lg border space-y-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-bold text-lg">₱{parseFloat(deposit.amount).toLocaleString()}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {deposit.user?.username || `User #${deposit.userId}`}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(deposit.createdAt).toLocaleString()}
-                            </p>
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                  {/* Combined list of deposits and withdrawals */}
+                  {(() => {
+                    const deposits = (manualTxFilter === "all" || manualTxFilter === "deposits")
+                      ? [...pendingDeposits, ...creditPendingDeposits].map(d => ({ ...d, txType: "deposit" }))
+                      : [];
+                    const withdrawals = (manualTxFilter === "all" || manualTxFilter === "withdrawals")
+                      ? allWithdrawals.filter(w => w.status === "pending" || w.status === "processing").map(w => ({ ...w, txType: "withdrawal" }))
+                      : [];
+                    const combined = [...deposits, ...withdrawals].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                    if (combined.length === 0) {
+                      return <p className="text-muted-foreground text-center py-8 text-sm">No pending transactions</p>;
+                    }
+
+                    return combined.map((tx) => (
+                      <div
+                        key={`${tx.txType}-${tx.id}`}
+                        className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-all ${
+                          tx.txType === "deposit"
+                            ? tx.status === "credit_pending" ? "border-orange-200 bg-orange-50/50" : "border-green-200 bg-green-50/50 hover:border-green-300"
+                            : tx.status === "processing" ? "border-blue-200 bg-blue-50/50 hover:border-blue-300" : "border-yellow-200 bg-yellow-50/50 hover:border-yellow-300"
+                        }`}
+                        onClick={() => { setSelectedManualTx(tx); setManualTxModalOpen(true); }}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full ${tx.txType === "deposit" ? "bg-green-100" : "bg-orange-100"}`}>
+                              {tx.txType === "deposit" ? <ArrowDownLeft className="h-4 w-4 text-green-600" /> : <ArrowUpRight className="h-4 w-4 text-orange-600" />}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold">₱{parseFloat(tx.amount).toLocaleString()}</span>
+                                <Badge variant="outline" className={`text-[10px] px-1.5 ${tx.txType === "deposit" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
+                                  {tx.txType === "deposit" ? "Deposit" : "Withdraw"}
+                                </Badge>
+                                {tx.status === "credit_pending" && <Badge variant="outline" className="text-[10px] px-1.5 bg-orange-100 text-orange-700">Retry</Badge>}
+                                {tx.status === "processing" && <Badge variant="outline" className="text-[10px] px-1.5 bg-blue-100 text-blue-700">Processing</Badge>}
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                {tx.txType === "deposit" ? (tx.user?.username || tx.user?.fullName || `User #${tx.userId}`) : (tx.userName || `User #${tx.userId}`)}
+                                <span className="mx-1">•</span>
+                                {new Date(tx.createdAt).toLocaleString()}
+                              </p>
+                            </div>
                           </div>
-                          <Badge>{deposit.paymentMethod?.label || "Unknown"}</Badge>
+                          <div className="text-right">
+                            {tx.txType === "deposit" && tx.paymentMethod?.label && (
+                              <Badge variant="secondary" className="text-[10px]">{tx.paymentMethod.label}</Badge>
+                            )}
+                            {tx.txType === "withdrawal" && (
+                              <Badge variant="secondary" className="text-[10px] uppercase">{tx.accountType}</Badge>
+                            )}
+                          </div>
                         </div>
-                        
-                        {deposit.proofImageUrl && (
-                          <a 
-                            href={deposit.proofImageUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="block"
-                          >
-                            <img 
-                              src={deposit.proofImageUrl} 
-                              alt="Proof" 
-                              className="w-full max-h-32 object-cover rounded border cursor-pointer hover:opacity-80"
-                            />
-                          </a>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Transaction Detail Modal */}
+          <Dialog open={manualTxModalOpen} onOpenChange={setManualTxModalOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {selectedManualTx?.txType === "deposit" ? (
+                    <><ArrowDownLeft className="h-5 w-5 text-green-600" /> Deposit Details</>
+                  ) : (
+                    <><ArrowUpRight className="h-5 w-5 text-orange-600" /> Withdrawal Details</>
+                  )}
+                </DialogTitle>
+              </DialogHeader>
+
+              {selectedManualTx && (
+                <div className="space-y-4">
+                  <div className="text-center py-2">
+                    <p className="text-3xl font-bold text-primary">₱{parseFloat(selectedManualTx.amount).toLocaleString()}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedManualTx.txType === "deposit"
+                        ? (selectedManualTx.user?.username || selectedManualTx.user?.fullName || `User #${selectedManualTx.userId}`)
+                        : (selectedManualTx.userName || `User #${selectedManualTx.userId}`)}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between py-1 border-b">
+                      <span className="text-muted-foreground">Type</span>
+                      <Badge variant={selectedManualTx.txType === "deposit" ? "default" : "secondary"}>
+                        {selectedManualTx.txType === "deposit" ? "Deposit" : "Withdrawal"}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between py-1 border-b">
+                      <span className="text-muted-foreground">Status</span>
+                      <Badge variant="outline">{selectedManualTx.status}</Badge>
+                    </div>
+                    <div className="flex justify-between py-1 border-b">
+                      <span className="text-muted-foreground">Date</span>
+                      <span>{new Date(selectedManualTx.createdAt).toLocaleString()}</span>
+                    </div>
+
+                    {selectedManualTx.txType === "deposit" && selectedManualTx.paymentMethod && (
+                      <div className="flex justify-between py-1 border-b">
+                        <span className="text-muted-foreground">Payment Method</span>
+                        <span>{selectedManualTx.paymentMethod.label}</span>
+                      </div>
+                    )}
+
+                    {selectedManualTx.txType === "withdrawal" && (
+                      <>
+                        <div className="flex justify-between py-1 border-b">
+                          <span className="text-muted-foreground">Account Type</span>
+                          <span className="uppercase">{selectedManualTx.accountType}</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b">
+                          <span className="text-muted-foreground">Account Name</span>
+                          <span>{selectedManualTx.accountName}</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b">
+                          <span className="text-muted-foreground">Account Number</span>
+                          <span className="font-mono">{selectedManualTx.accountNumber}</span>
+                        </div>
+                        {selectedManualTx.bankName && (
+                          <div className="flex justify-between py-1 border-b">
+                            <span className="text-muted-foreground">Bank</span>
+                            <span>{selectedManualTx.bankName}</span>
+                          </div>
                         )}
-                        
-                        {deposit.userNote && (
-                          <p className="text-sm text-muted-foreground bg-muted p-2 rounded">
-                            {deposit.userNote}
-                          </p>
-                        )}
-                        
+                      </>
+                    )}
+
+                    {selectedManualTx.userNote && (
+                      <div className="py-1">
+                        <span className="text-muted-foreground">Note:</span>
+                        <p className="mt-1 p-2 bg-muted rounded text-sm">{selectedManualTx.userNote}</p>
+                      </div>
+                    )}
+
+                    {selectedManualTx.txType === "deposit" && selectedManualTx.proofImageUrl && (
+                      <div className="py-1">
+                        <span className="text-muted-foreground">Proof:</span>
+                        <a href={selectedManualTx.proofImageUrl} target="_blank" rel="noopener noreferrer">
+                          <img src={selectedManualTx.proofImageUrl} alt="Proof" className="mt-1 w-full max-h-40 object-cover rounded border cursor-pointer hover:opacity-80" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  {selectedManualTx.status !== "completed" && selectedManualTx.status !== "rejected" && (
+                    <div className="space-y-2 pt-2">
+                      {selectedManualTx.txType === "deposit" && selectedManualTx.status === "pending" && (
                         <div className="flex gap-2">
                           <Button
-                            onClick={() => handleApproveDeposit(deposit.id)}
-                            disabled={processingDeposit === deposit.id}
                             className="flex-1 bg-green-600 hover:bg-green-700"
+                            onClick={() => { handleApproveDeposit(selectedManualTx.id); setManualTxModalOpen(false); }}
+                            disabled={processingDeposit === selectedManualTx.id}
                           >
-                            {processingDeposit === deposit.id ? "Processing..." : (
-                              <><CheckCircle className="h-4 w-4 mr-1" /> Approve</>
-                            )}
+                            <CheckCircle className="h-4 w-4 mr-1" /> Approve
                           </Button>
                           <Button
                             variant="destructive"
-                            onClick={() => handleRejectDeposit(deposit.id)}
-                            disabled={processingDeposit === deposit.id}
                             className="flex-1"
+                            onClick={() => { handleRejectDeposit(selectedManualTx.id); setManualTxModalOpen(false); }}
+                            disabled={processingDeposit === selectedManualTx.id}
                           >
                             <XCircle className="h-4 w-4 mr-1" /> Reject
                           </Button>
                         </div>
-                        
+                      )}
+
+                      {selectedManualTx.txType === "deposit" && selectedManualTx.status === "credit_pending" && (
+                        <Button
+                          className="w-full bg-orange-600 hover:bg-orange-700"
+                          onClick={() => { handleRetryCredit(selectedManualTx.id); setManualTxModalOpen(false); }}
+                          disabled={retryingDeposit === selectedManualTx.id}
+                        >
+                          <RefreshCw className="h-4 w-4 mr-1" /> Retry Credit
+                        </Button>
+                      )}
+
+                      {selectedManualTx.txType === "withdrawal" && selectedManualTx.status === "pending" && (
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <Button
+                              className="flex-1 bg-blue-500 hover:bg-blue-600"
+                              onClick={() => { handleProcessWithdrawal(selectedManualTx.id); setManualTxModalOpen(false); }}
+                              disabled={processingWithdrawal === selectedManualTx.id}
+                            >
+                              Processing
+                            </Button>
+                            <Button
+                              className="flex-1 bg-green-600 hover:bg-green-700"
+                              onClick={() => { handleCompleteWithdrawal(selectedManualTx.id); setManualTxModalOpen(false); }}
+                              disabled={processingWithdrawal === selectedManualTx.id}
+                            >
+                              Complete
+                            </Button>
+                          </div>
+                          <Input
+                            placeholder="Rejection reason..."
+                            value={withdrawalRejectReason}
+                            onChange={(e) => setWithdrawalRejectReason(e.target.value)}
+                            className="text-sm"
+                          />
+                          <Button
+                            variant="destructive"
+                            className="w-full"
+                            onClick={() => { handleRejectWithdrawal(selectedManualTx.id); setManualTxModalOpen(false); }}
+                            disabled={processingWithdrawal === selectedManualTx.id || !withdrawalRejectReason}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" /> Reject
+                          </Button>
+                        </div>
+                      )}
+
+                      {selectedManualTx.txType === "withdrawal" && selectedManualTx.status === "processing" && (
+                        <div className="space-y-2">
+                          <Button
+                            className="w-full bg-green-600 hover:bg-green-700"
+                            onClick={() => { handleCompleteWithdrawal(selectedManualTx.id); setManualTxModalOpen(false); }}
+                            disabled={processingWithdrawal === selectedManualTx.id}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" /> Mark Complete
+                          </Button>
+                          <Input
+                            placeholder="Rejection reason..."
+                            value={withdrawalRejectReason}
+                            onChange={(e) => setWithdrawalRejectReason(e.target.value)}
+                            className="text-sm"
+                          />
+                          <Button
+                            variant="destructive"
+                            className="w-full"
+                            onClick={() => { handleRejectWithdrawal(selectedManualTx.id); setManualTxModalOpen(false); }}
+                            disabled={processingWithdrawal === selectedManualTx.id || !withdrawalRejectReason}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" /> Reject
+                          </Button>
+                        </div>
+                      )}
+
+                      {selectedManualTx.txType === "deposit" && (
                         <Input
                           placeholder="Rejection reason (if rejecting)"
                           value={rejectReason}
                           onChange={(e) => setRejectReason(e.target.value)}
                           className="text-sm"
                         />
-                      </div>
-                    ))
+                      )}
+                    </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {creditPendingDeposits.length > 0 && (
-            <Card className="mt-6 border-orange-200 bg-orange-50/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-orange-700">
-                  <AlertCircle className="h-5 w-5" />
-                  Credit Pending - Retry Required
-                  <Badge variant="destructive">{creditPendingDeposits.length}</Badge>
-                </CardTitle>
-                <CardDescription>
-                  These deposits were approved but PHPT transfer failed. Retry when admin wallet has sufficient balance.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {creditPendingDeposits.map((deposit: any) => (
-                    <div key={deposit.id} className="p-4 rounded-lg border border-orange-200 bg-white space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-lg">₱{parseFloat(deposit.amount).toLocaleString()}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {deposit.user?.username || deposit.user?.fullName || `User #${deposit.userId}`}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Approved: {new Date(deposit.processedAt || deposit.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
-                          Credit Pending
-                        </Badge>
-                      </div>
-                      
-                      {deposit.adminNote && (
-                        <p className="text-sm text-orange-700 bg-orange-100 p-2 rounded">
-                          {deposit.adminNote}
-                        </p>
-                      )}
-                      
-                      <Button
-                        onClick={() => handleRetryCredit(deposit.id)}
-                        disabled={retryingDeposit === deposit.id}
-                        className="w-full bg-orange-600 hover:bg-orange-700"
-                      >
-                        {retryingDeposit === deposit.id ? (
-                          <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Retrying...</>
-                        ) : (
-                          <><RefreshCw className="h-4 w-4 mr-1" /> Retry Credit</>
-                        )}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="qrph">
@@ -1859,248 +1981,6 @@ export default function Admin() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="withdrawals">
-          <div className="space-y-6">
-            {/* Pending Withdrawals */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-yellow-500" />
-                  Pending Withdrawals
-                  {pendingWithdrawals.filter(w => w.status === "pending").length > 0 && (
-                    <Badge variant="destructive">{pendingWithdrawals.filter(w => w.status === "pending").length}</Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>Manual withdrawal requests awaiting processing</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {pendingWithdrawals.filter(w => w.status === "pending").length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">No pending withdrawals</p>
-                  ) : (
-                    pendingWithdrawals.filter(w => w.status === "pending").map((withdrawal) => (
-                      <div key={withdrawal.id} className="p-4 rounded-lg border bg-yellow-50/50 border-yellow-200" data-testid={`withdrawal-pending-${withdrawal.id}`}>
-                        <div className="flex justify-between items-start">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{withdrawal.userName || `User #${withdrawal.userId}`}</span>
-                              {getWithdrawalStatusBadge(withdrawal.status)}
-                            </div>
-                            <p className="text-2xl font-bold text-primary">
-                              ₱{parseFloat(withdrawal.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </p>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              {getAccountTypeIcon(withdrawal.accountType)}
-                              <span className="font-medium uppercase">{withdrawal.accountType}</span>
-                              {withdrawal.bankName && <span>- {withdrawal.bankName}</span>}
-                            </div>
-                            <p className="text-sm">
-                              <span className="text-muted-foreground">Account:</span> {withdrawal.accountNumber}
-                            </p>
-                            <p className="text-sm">
-                              <span className="text-muted-foreground">Name:</span> {withdrawal.accountName}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Requested: {new Date(withdrawal.createdAt).toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="bg-blue-500 hover:bg-blue-600"
-                              onClick={() => handleProcessWithdrawal(withdrawal.id)}
-                              disabled={processingWithdrawal === withdrawal.id}
-                              data-testid={`button-process-withdrawal-${withdrawal.id}`}
-                            >
-                              {processingWithdrawal === withdrawal.id ? (
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-                              ) : (
-                                "Processing"
-                              )}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="bg-green-500 hover:bg-green-600"
-                              onClick={() => handleCompleteWithdrawal(withdrawal.id)}
-                              disabled={processingWithdrawal === withdrawal.id}
-                              data-testid={`button-complete-withdrawal-${withdrawal.id}`}
-                            >
-                              Complete
-                            </Button>
-                            <div className="flex flex-col gap-1">
-                              <Input
-                                placeholder="Reason..."
-                                value={withdrawalRejectReason}
-                                onChange={(e) => setWithdrawalRejectReason(e.target.value)}
-                                className="text-xs h-8"
-                                data-testid={`input-reject-reason-${withdrawal.id}`}
-                              />
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleRejectWithdrawal(withdrawal.id)}
-                                disabled={processingWithdrawal === withdrawal.id || !withdrawalRejectReason}
-                                data-testid={`button-reject-withdrawal-${withdrawal.id}`}
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Processing Withdrawals */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <RefreshCw className="h-5 w-5 text-blue-500" />
-                  Processing
-                  {pendingWithdrawals.filter(w => w.status === "processing").length > 0 && (
-                    <Badge variant="default" className="bg-blue-500">{pendingWithdrawals.filter(w => w.status === "processing").length}</Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>Withdrawals currently being processed</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {pendingWithdrawals.filter(w => w.status === "processing").length === 0 ? (
-                    <p className="text-muted-foreground text-center py-4">No withdrawals in processing</p>
-                  ) : (
-                    pendingWithdrawals.filter(w => w.status === "processing").map((withdrawal) => (
-                      <div key={withdrawal.id} className="p-4 rounded-lg border bg-blue-50/50 border-blue-200" data-testid={`withdrawal-processing-${withdrawal.id}`}>
-                        <div className="flex justify-between items-start">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{withdrawal.userName || `User #${withdrawal.userId}`}</span>
-                              {getWithdrawalStatusBadge(withdrawal.status)}
-                            </div>
-                            <p className="text-2xl font-bold text-primary">
-                              ₱{parseFloat(withdrawal.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </p>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              {getAccountTypeIcon(withdrawal.accountType)}
-                              <span className="font-medium uppercase">{withdrawal.accountType}</span>
-                              {withdrawal.bankName && <span>- {withdrawal.bankName}</span>}
-                            </div>
-                            <p className="text-sm">
-                              <span className="text-muted-foreground">Account:</span> {withdrawal.accountNumber}
-                            </p>
-                            <p className="text-sm">
-                              <span className="text-muted-foreground">Name:</span> {withdrawal.accountName}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Started: {withdrawal.processedAt ? new Date(withdrawal.processedAt).toLocaleString() : "N/A"}
-                            </p>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="bg-green-500 hover:bg-green-600"
-                              onClick={() => handleCompleteWithdrawal(withdrawal.id)}
-                              disabled={processingWithdrawal === withdrawal.id}
-                              data-testid={`button-complete-processing-${withdrawal.id}`}
-                            >
-                              {processingWithdrawal === withdrawal.id ? (
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-                              ) : (
-                                "Complete"
-                              )}
-                            </Button>
-                            <div className="flex flex-col gap-1">
-                              <Input
-                                placeholder="Reason..."
-                                value={withdrawalRejectReason}
-                                onChange={(e) => setWithdrawalRejectReason(e.target.value)}
-                                className="text-xs h-8"
-                              />
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleRejectWithdrawal(withdrawal.id)}
-                                disabled={processingWithdrawal === withdrawal.id || !withdrawalRejectReason}
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Completed/Rejected Withdrawals History */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <History className="h-5 w-5" />
-                  Withdrawal History
-                </CardTitle>
-                <CardDescription>Recently completed and rejected withdrawals</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {allWithdrawals.filter(w => w.status === "completed" || w.status === "rejected").length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">No withdrawal history</p>
-                  ) : (
-                    allWithdrawals
-                      .filter(w => w.status === "completed" || w.status === "rejected")
-                      .sort((a, b) => new Date(b.completedAt || b.updatedAt).getTime() - new Date(a.completedAt || a.updatedAt).getTime())
-                      .slice(0, 50)
-                      .map((withdrawal) => (
-                        <div
-                          key={withdrawal.id}
-                          className={`p-3 rounded-lg border text-sm ${
-                            withdrawal.status === "completed" ? "bg-green-50/50 border-green-200" : "bg-red-50/50 border-red-200"
-                          }`}
-                          data-testid={`withdrawal-history-${withdrawal.id}`}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">{withdrawal.userName || `User #${withdrawal.userId}`}</span>
-                                {getWithdrawalStatusBadge(withdrawal.status)}
-                              </div>
-                              <p className="font-bold">
-                                ₱{parseFloat(withdrawal.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                              </p>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                {getAccountTypeIcon(withdrawal.accountType)}
-                                <span className="uppercase">{withdrawal.accountType}</span>
-                                {withdrawal.bankName && <span>- {withdrawal.bankName}</span>}
-                                <span>•</span>
-                                <span>{withdrawal.accountNumber}</span>
-                              </div>
-                              {withdrawal.rejectionReason && (
-                                <p className="text-xs text-red-600">
-                                  Reason: {withdrawal.rejectionReason}
-                                </p>
-                              )}
-                            </div>
-                            <div className="text-right text-xs text-muted-foreground">
-                              <p>{new Date(withdrawal.completedAt || withdrawal.updatedAt).toLocaleString()}</p>
-                              {withdrawal.adminId && <p>Admin #{withdrawal.adminId}</p>}
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
 
         {/* Telegram Topup/Cashout Tab */}

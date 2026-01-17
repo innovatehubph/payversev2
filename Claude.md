@@ -4,7 +4,73 @@ This document tracks the development progress and features implemented by Claude
 
 ---
 
-## Latest Update: January 16, 2026
+## Latest Update: January 17, 2026
+
+### Admin Panel Consolidation & UI Enhancements - COMPLETED
+
+Major admin panel refactoring to consolidate manual transactions and improve super admin dashboard.
+
+#### Features Implemented:
+
+**1. Consolidated "Manual" Tab** (`client/src/pages/admin.tsx`)
+- Merged P2P and Withdrawals tabs into single "Manual" tab
+- Reduced admin tabs from 10 to 9 for cleaner navigation
+- Layout: Left (1/3) - Payment Methods | Right (2/3) - Transactions list
+
+**2. Unified Transactions List**
+- Combined deposits and withdrawals in single scrollable list
+- Filter buttons: All / Deposits / Withdrawals with pending counts
+- Color-coded transaction cards:
+  - Green: Pending deposits
+  - Orange: Credit pending (retry required)
+  - Yellow: Pending withdrawals
+  - Blue: Processing withdrawals
+- Click-to-open transaction detail modal
+
+**3. Transaction Detail Modal**
+- Full transaction details display
+- Action buttons based on type/status:
+  - Deposits: Approve / Reject / Retry Credit
+  - Withdrawals: Processing / Complete / Reject
+- Proof image display for deposits
+- Rejection reason input
+
+**4. Super Admin Dashboard Enhancements**
+- Two-column balance display:
+  - PayVerse Escrow (green) - PHPT balance
+  - NexusPay Merchant (blue) - PHP payout funds
+- Compact responsive cards
+- NexusPay balance auto-refresh every 15 seconds
+
+**5. Quick Action Buttons UI Redesign**
+- Smaller font size (`text-xs`) to prevent overflow
+- Thicker borders (`border-2`)
+- Custom shadow styling with hover effects
+- Colored icons (green for Top Up, orange for Cash Out)
+- Smooth hover animations with translate
+
+**6. NexusPay Balance Endpoint** (`server/nexuspay.ts`)
+- `GET /api/admin/nexuspay/balance` - Admin-only read-only endpoint
+- Returns merchant wallet balance for cash-out monitoring
+- Decodes base64 email from NexusPay response
+
+**7. Admin Email Update Endpoint** (`server/admin.ts`)
+- `PATCH /api/admin/users/:id/email` - Update user email
+- Validation, duplicate check, audit logging
+
+**8. Email Service Fixes**
+- Switched SMTP to Hostinger (smtp.hostinger.com)
+- Fixed EMAIL_LOGO_URL to correct path (payverse_logo.png)
+- Verified password reset and OTP emails working
+
+**9. PWA App Icons Update**
+- New icons with green background (#16a34a) for visibility
+- Original PayVerse logo overlay
+- Better visibility on iPhone/Android homescreens
+
+---
+
+## Previous Update: January 16, 2026
 
 ### Manual Banking & Withdrawal Feature - COMPLETED
 
@@ -244,7 +310,8 @@ Enhanced PIN security with masked inputs and email-based PIN reset functionality
 payverse/
 ├── client/src/
 │   ├── pages/
-│   │   ├── admin.tsx          # Admin panel with Withdrawals tab
+│   │   ├── admin.tsx          # Admin panel with consolidated Manual tab
+│   │   ├── dashboard.tsx      # User dashboard with super admin balances
 │   │   ├── bank-accounts.tsx  # User bank account management
 │   │   ├── manual-withdrawal.tsx # Withdrawal request page
 │   │   └── ...
@@ -255,6 +322,8 @@ payverse/
 │       └── modals/
 │           └── cashout-modal.tsx # Cash out options modal
 ├── server/
+│   ├── admin.ts               # Admin endpoints (incl. email update)
+│   ├── nexuspay.ts            # NexusPay QRPH + balance endpoint
 │   ├── manual-withdrawals.ts  # Withdrawal API endpoints
 │   ├── websocket.ts           # WebSocket server
 │   ├── storage.ts             # Database operations
@@ -265,4 +334,4 @@ payverse/
 
 ---
 
-*Last updated: January 16, 2026*
+*Last updated: January 17, 2026*

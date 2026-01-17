@@ -276,6 +276,78 @@ export function registerNexusPayRoutes(app: Express) {
     }
   });
 
+  // Admin-only endpoint to check NexusPay merchant wallet balance
+  // This is READ-ONLY and does NOT affect any transactions
+  app.get("/api/admin/nexuspay/balance", authMiddleware, async (req: Request, res: Response) => {
+    // Admin-only check
+    if (!req.user?.isAdmin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const config = await getConfig();
+      if (!config) {
+        return res.json({
+          success: false,
+          message: "NexusPay is not configured"
+        });
+      }
+
+      // Get fresh auth session
+      const authSession = await getFreshAuthSession();
+      if (!authSession) {
+        return res.json({
+          success: false,
+          message: "Failed to authenticate with NexusPay"
+        });
+      }
+
+      // Call /user/info endpoint to get wallet balance
+      const response = await fetch(`${config.baseUrl}/api/user/info`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${authSession.token}`,
+          "Accept": "application/json",
+          "Cookie": authSession.sessionCookie
+        }
+      });
+
+      const data = await response.json();
+
+      if (data.status === "success" && data.data) {
+        // Decode email if base64 encoded
+        let email = data.data.email || "";
+        try {
+          email = Buffer.from(email, "base64").toString("utf8");
+        } catch {
+          // Not base64 encoded, use as-is
+        }
+
+        return res.json({
+          success: true,
+          username: data.data.username,
+          email: email,
+          walletBalance: parseFloat(data.data.wallet_funds || "0"),
+          walletBalanceFormatted: `₱${parseFloat(data.data.wallet_funds || "0").toLocaleString("en-PH", { minimumFractionDigits: 2 })}`,
+          totalAmountFailed: parseFloat(data.data.total_amount_failed || "0"),
+          totalAmount: parseFloat(data.data.total_amount || "0"),
+          message: "NexusPay wallet balance retrieved successfully"
+        });
+      }
+
+      return res.json({
+        success: false,
+        message: data.message || "Failed to retrieve balance"
+      });
+    } catch (error: any) {
+      console.error("[NexusPay] Balance check error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to check NexusPay balance"
+      });
+    }
+  });
+
   app.post("/api/nexuspay/cashin", authMiddleware, async (req: Request, res: Response) => {
     try {
       const { amount } = req.body;

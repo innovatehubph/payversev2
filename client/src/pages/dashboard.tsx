@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import AppLayout from "@/components/app-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Send, Clock, Plus, Coins, Eye, EyeOff, Link2, Wallet, QrCode, Building2, Gamepad2, LayoutGrid, ChevronRight } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Send, Clock, Plus, Coins, Eye, EyeOff, Link2, Wallet, QrCode, Building2, Gamepad2, LayoutGrid, ChevronRight, CreditCard } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { useModals } from "@/lib/modal-context";
@@ -25,6 +25,33 @@ export default function Dashboard() {
   const [tourChecked, setTourChecked] = useState(false);
   const [casinoModalOpen, setCasinoModalOpen] = useState(false);
 
+  // NexusPay balance (super admin only)
+  const [nexusPayBalance, setNexusPayBalance] = useState<number | null>(null);
+  const [nexusPayLoading, setNexusPayLoading] = useState(false);
+
+  // Fetch NexusPay balance (super admin only)
+  const fetchNexusPayBalance = async (silent = false) => {
+    if (user?.role !== "super_admin") return;
+
+    try {
+      if (!silent) setNexusPayLoading(true);
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/nexuspay/balance", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setNexusPayBalance(data.walletBalance);
+        }
+      }
+    } catch (error) {
+      if (!silent) console.error("Failed to fetch NexusPay balance", error);
+    } finally {
+      if (!silent) setNexusPayLoading(false);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -33,6 +60,11 @@ export default function Dashboard() {
           fetchWalletBalance()
         ]);
         setTransactions(txData.slice(0, 5));
+
+        // Fetch NexusPay balance for super admin
+        if (user?.role === "super_admin") {
+          fetchNexusPayBalance();
+        }
       } catch (error) {
         console.error("Failed to fetch data", error);
       } finally {
@@ -45,11 +77,14 @@ export default function Dashboard() {
     const balanceInterval = setInterval(() => {
       if (!document.hidden) {
         fetchWalletBalance(true); // silent mode
+        if (user?.role === "super_admin") {
+          fetchNexusPayBalance(true);
+        }
       }
     }, 15000);
 
     return () => clearInterval(balanceInterval);
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     const checkTutorialStatus = async () => {
@@ -134,74 +169,158 @@ export default function Dashboard() {
 
       {/* Main Balance Card */}
       <section className="mb-6" data-testid="wallet-balance">
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-primary/80 text-primary-foreground p-6 shadow-2xl shadow-primary/30">
-          <div className="absolute top-0 right-0 -mt-8 -mr-8 h-40 w-40 rounded-full bg-white/10 blur-3xl"></div>
-          <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-40 w-40 rounded-full bg-accent/20 blur-3xl"></div>
-          
-          <div className="relative z-10">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <p className="text-primary-foreground/80 font-medium mb-1 flex items-center gap-2 text-sm">
-                  <Coins className="h-4 w-4" /> PayVerse Balance
-                  {cryptoConnected && (
-                    <span className="inline-flex items-center gap-1 text-xs bg-white/20 px-2 py-0.5 rounded-full">
-                      <Link2 className="h-3 w-3" /> Connected
-                    </span>
-                  )}
-                </p>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-4xl md:text-5xl font-display font-bold tracking-tight" data-testid="text-total-balance">
-                    {balanceLoading ? "..." : showBalance ? formatPeso(phptBalance) : "••••••"}
-                  </h2>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    className="text-primary-foreground/70 hover:text-white hover:bg-white/10 h-8 w-8 rounded-full"
-                    onClick={() => setShowBalance(!showBalance)}
-                    data-testid="button-toggle-balance"
-                  >
-                    {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                  </Button>
+        {/* Super Admin: Two-column compact layout for both balances */}
+        {user?.role === "super_admin" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {/* PayVerse Balance Card */}
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-primary/80 text-primary-foreground p-5 shadow-xl shadow-primary/20">
+              <div className="absolute top-0 right-0 -mt-6 -mr-6 h-24 w-24 rounded-full bg-white/10 blur-2xl"></div>
+              <div className="relative z-10">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1">
+                    <p className="text-primary-foreground/80 font-medium mb-1 flex items-center gap-2 text-xs">
+                      <Coins className="h-3.5 w-3.5" /> PayVerse Escrow
+                      {cryptoConnected && (
+                        <span className="inline-flex items-center gap-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">
+                          <Link2 className="h-2.5 w-2.5" /> Live
+                        </span>
+                      )}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl md:text-3xl font-display font-bold tracking-tight" data-testid="text-total-balance">
+                        {balanceLoading ? "..." : showBalance ? formatPeso(phptBalance) : "••••••"}
+                      </h2>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-primary-foreground/70 hover:text-white hover:bg-white/10 h-7 w-7 rounded-full"
+                        onClick={() => setShowBalance(!showBalance)}
+                        data-testid="button-toggle-balance"
+                      >
+                        {showBalance ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                      </Button>
+                    </div>
+                    <p className="text-primary-foreground/60 text-[10px] mt-0.5">PHPT • PayGram Wallet</p>
+                  </div>
                 </div>
-                <p className="text-primary-foreground/60 text-xs mt-1">
-                  PHPT • 1:1 with PHP
-                </p>
               </div>
             </div>
 
-            {/* Quick Action Buttons - All users get Send, Top Up, Cash Out. Super admin also gets Admin Panel */}
-            <div className={`grid ${user?.role === "super_admin" ? "grid-cols-4" : "grid-cols-3"} gap-3`}>
-              <Link href="/send">
-                <Button className="w-full bg-white text-primary hover:bg-white/90 border-0 shadow-lg shadow-black/10 font-medium h-12" data-testid="button-send">
-                  <Send className="mr-2 h-4 w-4" /> Send
-                </Button>
-              </Link>
-              <Button
-                variant="outline"
-                className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium h-12"
-                onClick={openTopUp}
-                data-testid="button-topup"
-              >
-                <ArrowDownLeft className="mr-2 h-4 w-4" /> Top Up
-              </Button>
-              <Button
-                variant="outline"
-                className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium h-12"
-                onClick={openCashOut}
-                data-testid="button-cashout"
-              >
-                <ArrowUpRight className="mr-2 h-4 w-4" /> Cash Out
-              </Button>
-              {user?.role === "super_admin" && (
-                <Link href="/admin">
-                  <Button className="w-full bg-white/20 text-white hover:bg-white/30 border-0 font-medium h-12" data-testid="button-admin">
-                    Admin
-                  </Button>
-                </Link>
-              )}
+            {/* NexusPay Balance Card */}
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-600 to-blue-500 text-white p-5 shadow-xl shadow-blue-600/20">
+              <div className="absolute top-0 right-0 -mt-6 -mr-6 h-24 w-24 rounded-full bg-white/10 blur-2xl"></div>
+              <div className="relative z-10">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1">
+                    <p className="text-white/80 font-medium mb-1 flex items-center gap-2 text-xs">
+                      <CreditCard className="h-3.5 w-3.5" /> NexusPay Merchant
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">
+                        QRPH Payout
+                      </span>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl md:text-3xl font-display font-bold tracking-tight">
+                        {nexusPayLoading ? "..." : showBalance ? (nexusPayBalance !== null ? formatPeso(nexusPayBalance) : "N/A") : "••••••"}
+                      </h2>
+                    </div>
+                    <p className="text-white/60 text-[10px] mt-0.5">PHP • Cash-Out Funds</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          /* Regular users: Full-width balance card */
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-primary/80 text-primary-foreground p-6 shadow-2xl shadow-primary/30">
+            <div className="absolute top-0 right-0 -mt-8 -mr-8 h-40 w-40 rounded-full bg-white/10 blur-3xl"></div>
+            <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-40 w-40 rounded-full bg-accent/20 blur-3xl"></div>
+
+            <div className="relative z-10">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <p className="text-primary-foreground/80 font-medium mb-1 flex items-center gap-2 text-sm">
+                    <Coins className="h-4 w-4" /> PayVerse Balance
+                    {cryptoConnected && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-white/20 px-2 py-0.5 rounded-full">
+                        <Link2 className="h-3 w-3" /> Connected
+                      </span>
+                    )}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-4xl md:text-5xl font-display font-bold tracking-tight" data-testid="text-total-balance">
+                      {balanceLoading ? "..." : showBalance ? formatPeso(phptBalance) : "••••••"}
+                    </h2>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-primary-foreground/70 hover:text-white hover:bg-white/10 h-8 w-8 rounded-full"
+                      onClick={() => setShowBalance(!showBalance)}
+                      data-testid="button-toggle-balance"
+                    >
+                      {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-primary-foreground/60 text-xs mt-1">
+                    PHPT • 1:1 with PHP
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Action Buttons for regular users */}
+              <div className="grid grid-cols-3 gap-2">
+                <Link href="/send">
+                  <Button className="w-full bg-white text-primary hover:bg-white/95 border-2 border-white/80 text-xs font-medium h-11 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.15)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-200 hover:-translate-y-0.5" data-testid="button-send">
+                    <Send className="mr-1.5 h-3.5 w-3.5" /> Send
+                  </Button>
+                </Link>
+                <Button
+                  className="bg-white/15 backdrop-blur-sm border-2 border-white/40 text-white hover:bg-white/25 hover:border-white/60 text-xs font-medium h-11 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.1)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all duration-200 hover:-translate-y-0.5"
+                  onClick={openTopUp}
+                  data-testid="button-topup"
+                >
+                  <ArrowDownLeft className="mr-1.5 h-3.5 w-3.5" /> Top Up
+                </Button>
+                <Button
+                  className="bg-white/15 backdrop-blur-sm border-2 border-white/40 text-white hover:bg-white/25 hover:border-white/60 text-xs font-medium h-11 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.1)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all duration-200 hover:-translate-y-0.5"
+                  onClick={openCashOut}
+                  data-testid="button-cashout"
+                >
+                  <ArrowUpRight className="mr-1.5 h-3.5 w-3.5" /> Cash Out
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Super Admin Quick Actions */}
+        {user?.role === "super_admin" && (
+          <div className="grid grid-cols-4 gap-2">
+            <Link href="/send">
+              <Button className="w-full bg-gradient-to-r from-primary to-primary/90 text-white hover:from-primary/90 hover:to-primary/80 text-xs font-medium h-11 rounded-xl border border-primary/20 shadow-[0_2px_8px_rgba(22,163,74,0.25)] hover:shadow-[0_4px_12px_rgba(22,163,74,0.35)] transition-all duration-200 hover:-translate-y-0.5" data-testid="button-send">
+                <Send className="mr-1.5 h-3.5 w-3.5" /> Send
+              </Button>
+            </Link>
+            <Button
+              onClick={openTopUp}
+              className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-gray-600 hover:border-green-300 dark:hover:border-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 text-xs font-medium h-11 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] transition-all duration-200 hover:-translate-y-0.5"
+              data-testid="button-topup"
+            >
+              <ArrowDownLeft className="mr-1.5 h-3.5 w-3.5 text-green-500" /> Top Up
+            </Button>
+            <Button
+              onClick={openCashOut}
+              className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-gray-600 hover:border-orange-300 dark:hover:border-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-xs font-medium h-11 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] transition-all duration-200 hover:-translate-y-0.5"
+              data-testid="button-cashout"
+            >
+              <ArrowUpRight className="mr-1.5 h-3.5 w-3.5 text-orange-500" /> Cash Out
+            </Button>
+            <Link href="/admin">
+              <Button className="w-full bg-gradient-to-r from-gray-800 to-gray-700 dark:from-gray-600 dark:to-gray-500 text-white hover:from-gray-700 hover:to-gray-600 text-xs font-medium h-11 rounded-xl border border-gray-600/30 shadow-[0_2px_8px_rgba(0,0,0,0.15)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-200 hover:-translate-y-0.5" data-testid="button-admin">
+                Admin
+              </Button>
+            </Link>
+          </div>
+        )}
       </section>
 
       {/* Quick Services - Hidden for super admin (escrow account) */}
