@@ -1,6 +1,6 @@
 import { db, pool } from "../db";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { users, transactions, paygramConnections, cryptoInvoices, cryptoWithdrawals, adminAuditLogs, balanceAdjustments, manualPaymentMethods, manualDepositRequests, emailOtps, kycDocuments, userTutorials, casinoLinks, casinoTransactions, userBankAccounts, manualWithdrawalRequests, type User, type InsertUser, type Transaction, type InsertTransaction, type PaygramConnection, type CryptoInvoice, type CryptoWithdrawal, type AdminAuditLog, type InsertAdminAuditLog, type BalanceAdjustment, type InsertBalanceAdjustment, type ManualPaymentMethod, type InsertManualPaymentMethod, type ManualDepositRequest, type InsertManualDepositRequest, type EmailOtp, type InsertEmailOtp, type KycDocument, type InsertKycDocument, type CasinoLink, type InsertCasinoLink, type CasinoTransaction, type InsertCasinoTransaction, type UserBankAccount, type InsertUserBankAccount, type ManualWithdrawalRequest, type InsertManualWithdrawal } from "@shared/schema";
+import { users, transactions, paygramConnections, cryptoInvoices, cryptoWithdrawals, adminAuditLogs, balanceAdjustments, manualPaymentMethods, manualDepositRequests, emailOtps, kycDocuments, userTutorials, casinoLinks, casinoTransactions, userBankAccounts, manualWithdrawalRequests, aiChatConversations, aiChatMessages, aiChatAttachments, aiFunctionCallLogs, type User, type InsertUser, type Transaction, type InsertTransaction, type PaygramConnection, type CryptoInvoice, type CryptoWithdrawal, type AdminAuditLog, type InsertAdminAuditLog, type BalanceAdjustment, type InsertBalanceAdjustment, type ManualPaymentMethod, type InsertManualPaymentMethod, type ManualDepositRequest, type InsertManualDepositRequest, type EmailOtp, type InsertEmailOtp, type KycDocument, type InsertKycDocument, type CasinoLink, type InsertCasinoLink, type CasinoTransaction, type InsertCasinoTransaction, type UserBankAccount, type InsertUserBankAccount, type ManualWithdrawalRequest, type InsertManualWithdrawal, type AiChatConversation, type InsertAiChatConversation, type AiChatMessage, type InsertAiChatMessage, type AiChatAttachment, type InsertAiChatAttachment, type AiFunctionCallLog, type InsertAiFunctionCallLog } from "@shared/schema";
 import { eq, desc, or, sql, ilike, and, gt, lt, inArray, isNull } from "drizzle-orm";
 
 export interface IStorage {
@@ -134,6 +134,24 @@ export interface IStorage {
   getCasinoTransactionsByUserId(userId: number): Promise<CasinoTransaction[]>;
   getPendingCasinoTransactions(): Promise<CasinoTransaction[]>;
   getManualRequiredCasinoTransactions(): Promise<CasinoTransaction[]>;
+
+  // AI Chat
+  createAiConversation(data: InsertAiChatConversation): Promise<AiChatConversation>;
+  getAiConversation(id: number): Promise<AiChatConversation | undefined>;
+  getAiConversationBySessionId(sessionId: string): Promise<AiChatConversation | undefined>;
+  getAiConversationsByUserId(userId: number): Promise<AiChatConversation[]>;
+  updateAiConversation(id: number, updates: Partial<AiChatConversation>): Promise<AiChatConversation | undefined>;
+  deleteAiConversation(id: number): Promise<void>;
+
+  createAiMessage(data: InsertAiChatMessage): Promise<AiChatMessage>;
+  getAiMessagesByConversationId(conversationId: number): Promise<AiChatMessage[]>;
+
+  createAiAttachment(data: InsertAiChatAttachment): Promise<AiChatAttachment>;
+  getAiAttachmentsByConversationId(conversationId: number): Promise<AiChatAttachment[]>;
+
+  createAiFunctionCallLog(data: InsertAiFunctionCallLog): Promise<AiFunctionCallLog>;
+  updateAiFunctionCallLog(id: number, updates: Partial<AiFunctionCallLog>): Promise<AiFunctionCallLog | undefined>;
+  getAiFunctionCallLogsByMessageId(messageId: number): Promise<AiFunctionCallLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1604,6 +1622,94 @@ export class DatabaseStorage implements IStorage {
         username: r.user.username,
       } : null,
     }));
+  }
+
+  // ==================== AI Chat ====================
+
+  async createAiConversation(data: InsertAiChatConversation): Promise<AiChatConversation> {
+    const [conversation] = await db.insert(aiChatConversations).values(data).returning();
+    return conversation;
+  }
+
+  async getAiConversation(id: number): Promise<AiChatConversation | undefined> {
+    const [conversation] = await db.select().from(aiChatConversations)
+      .where(eq(aiChatConversations.id, id));
+    return conversation;
+  }
+
+  async getAiConversationBySessionId(sessionId: string): Promise<AiChatConversation | undefined> {
+    const [conversation] = await db.select().from(aiChatConversations)
+      .where(eq(aiChatConversations.sessionId, sessionId));
+    return conversation;
+  }
+
+  async getAiConversationsByUserId(userId: number): Promise<AiChatConversation[]> {
+    return await db.select().from(aiChatConversations)
+      .where(and(
+        eq(aiChatConversations.userId, userId),
+        eq(aiChatConversations.status, "active")
+      ))
+      .orderBy(desc(aiChatConversations.updatedAt));
+  }
+
+  async updateAiConversation(id: number, updates: Partial<AiChatConversation>): Promise<AiChatConversation | undefined> {
+    const [conversation] = await db.update(aiChatConversations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(aiChatConversations.id, id))
+      .returning();
+    return conversation;
+  }
+
+  async deleteAiConversation(id: number): Promise<void> {
+    // Soft delete by setting status to archived
+    await db.update(aiChatConversations)
+      .set({ status: "archived", updatedAt: new Date() })
+      .where(eq(aiChatConversations.id, id));
+  }
+
+  async createAiMessage(data: InsertAiChatMessage): Promise<AiChatMessage> {
+    const [message] = await db.insert(aiChatMessages).values(data).returning();
+    // Update conversation's updatedAt
+    await db.update(aiChatConversations)
+      .set({ updatedAt: new Date() })
+      .where(eq(aiChatConversations.id, data.conversationId));
+    return message;
+  }
+
+  async getAiMessagesByConversationId(conversationId: number): Promise<AiChatMessage[]> {
+    return await db.select().from(aiChatMessages)
+      .where(eq(aiChatMessages.conversationId, conversationId))
+      .orderBy(aiChatMessages.createdAt);
+  }
+
+  async createAiAttachment(data: InsertAiChatAttachment): Promise<AiChatAttachment> {
+    const [attachment] = await db.insert(aiChatAttachments).values(data).returning();
+    return attachment;
+  }
+
+  async getAiAttachmentsByConversationId(conversationId: number): Promise<AiChatAttachment[]> {
+    return await db.select().from(aiChatAttachments)
+      .where(eq(aiChatAttachments.conversationId, conversationId))
+      .orderBy(aiChatAttachments.createdAt);
+  }
+
+  async createAiFunctionCallLog(data: InsertAiFunctionCallLog): Promise<AiFunctionCallLog> {
+    const [log] = await db.insert(aiFunctionCallLogs).values(data).returning();
+    return log;
+  }
+
+  async updateAiFunctionCallLog(id: number, updates: Partial<AiFunctionCallLog>): Promise<AiFunctionCallLog | undefined> {
+    const [log] = await db.update(aiFunctionCallLogs)
+      .set(updates)
+      .where(eq(aiFunctionCallLogs.id, id))
+      .returning();
+    return log;
+  }
+
+  async getAiFunctionCallLogsByMessageId(messageId: number): Promise<AiFunctionCallLog[]> {
+    return await db.select().from(aiFunctionCallLogs)
+      .where(eq(aiFunctionCallLogs.messageId, messageId))
+      .orderBy(aiFunctionCallLogs.createdAt);
   }
 }
 

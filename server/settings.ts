@@ -216,6 +216,60 @@ const DEFAULT_SETTINGS = [
     description: "Logo URL for email templates (must be publicly accessible)",
     value: process.env.EMAIL_LOGO_URL || "https://payverse.ph/logo.png",
   },
+
+  // SMS/PhilSMS Settings
+  {
+    key: "PHILSMS_API_TOKEN",
+    category: "sms",
+    description: "PhilSMS API Bearer Token for SMS gateway",
+    value: process.env.PHILSMS_API_TOKEN || "",
+    isEncrypted: true,
+  },
+  {
+    key: "SMS_SENDER_ID",
+    category: "sms",
+    description: "SMS Sender ID (max 11 alphanumeric characters)",
+    value: "PayVerse",
+  },
+  {
+    key: "SMS_NOTIFICATIONS_ENABLED",
+    category: "sms",
+    description: "Enable SMS notifications for transactions (true/false)",
+    value: "false",
+  },
+
+  // AI Chat Settings
+  {
+    key: "OPENROUTER_API_KEY",
+    category: "ai",
+    description: "OpenRouter API Key for AI assistant",
+    value: process.env.OPENROUTER_API_KEY || "",
+    isEncrypted: true,
+  },
+  {
+    key: "AI_ENABLED",
+    category: "ai",
+    description: "Enable AI chat assistant (true/false)",
+    value: "true",
+  },
+  {
+    key: "AI_DEFAULT_MODEL",
+    category: "ai",
+    description: "Default AI model preference (auto/fast/reasoning/code)",
+    value: "auto",
+  },
+  {
+    key: "AI_MAX_TOKENS",
+    category: "ai",
+    description: "Maximum tokens for AI responses",
+    value: "4096",
+  },
+  {
+    key: "AI_RATE_LIMIT_PER_HOUR",
+    category: "ai",
+    description: "Default rate limit per hour for AI requests",
+    value: "50",
+  },
 ];
 
 // Default escrow agents (casino agents managed by super admin)
@@ -303,6 +357,13 @@ export function registerSettingsRoutes(app: Express, authMiddleware: any) {
       if (key.startsWith("NEXUSPAY_")) {
         clearNexusPayConfigCache();
         console.log(`[Settings] Cleared NexusPay config cache for ${key}`);
+      }
+
+      // If this is an SMS/PhilSMS setting, clear the SMS cache
+      if (key.startsWith("PHILSMS_") || key.startsWith("SMS_")) {
+        const { clearPhilSMSCache } = await import("./sms-philsms");
+        clearPhilSMSCache();
+        console.log(`[Settings] Cleared PhilSMS cache for ${key}`);
       }
 
       res.json({
@@ -453,6 +514,77 @@ export function registerSettingsRoutes(app: Express, authMiddleware: any) {
       res.status(500).json({
         success: false,
         message: error.message || "Failed to send test email"
+      });
+    }
+  });
+
+  // Test SMS endpoint - sends a test SMS to verify PhilSMS configuration
+  app.post("/api/admin/settings/test-sms", authMiddleware, superAdminOnly, async (req, res) => {
+    try {
+      const { phone, message } = req.body;
+
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number is required" });
+      }
+
+      // Import SMS service dynamically
+      const { sendSMS, clearPhilSMSCache } = await import("./sms-philsms");
+
+      // Clear cache to force reload of credentials
+      clearSettingsCache();
+      clearPhilSMSCache();
+
+      console.log(`[Settings] Sending test SMS to ${phone}`);
+      const testMessage = message || "PayVerse Test: Your SMS gateway is working! This is a test message.";
+      const result = await sendSMS(phone, testMessage);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: `Test SMS sent successfully to ${phone}`,
+          messageId: result.messageId
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          message: result.error || "Failed to send test SMS. Please check PhilSMS settings."
+        });
+      }
+    } catch (error: any) {
+      console.error("[Settings] Test SMS error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to send test SMS"
+      });
+    }
+  });
+
+  // Check SMS balance endpoint
+  app.get("/api/admin/settings/sms-balance", authMiddleware, superAdminOnly, async (req, res) => {
+    try {
+      const { checkBalance, clearPhilSMSCache } = await import("./sms-philsms");
+      clearSettingsCache();
+      clearPhilSMSCache();
+
+      const result = await checkBalance();
+
+      if (result.success) {
+        res.json({
+          success: true,
+          balance: result.balance,
+          expiresOn: (result as any).expiresOn
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          message: result.error || "Failed to check SMS balance"
+        });
+      }
+    } catch (error: any) {
+      console.error("[Settings] SMS balance error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to check SMS balance"
       });
     }
   });

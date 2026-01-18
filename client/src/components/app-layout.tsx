@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TopUpModal, CashOutModal } from "@/components/modals";
+import { ChatFab } from "@/components/ai-chat";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -310,6 +311,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Modals */}
       <TopUpModal open={topUpOpen} onOpenChange={(open) => !open && closeTopUp()} />
       <CashOutModal open={cashOutOpen} onOpenChange={(open) => !open && closeCashOut()} />
+
+      {/* AI Chat FAB */}
+      <ChatFab />
     </div>
   );
 }

@@ -646,3 +646,116 @@ export type ManualWithdrawalRequest = typeof manualWithdrawalRequests.$inferSele
 export type InsertManualWithdrawal = z.infer<typeof insertManualWithdrawalSchema>;
 export type ProcessWithdrawalInput = z.infer<typeof processWithdrawalSchema>;
 export type RejectWithdrawalInput = z.infer<typeof rejectWithdrawalSchema>;
+
+// ============================================================================
+// AI CHAT SYSTEM
+// ============================================================================
+
+/**
+ * AI Chat Conversations
+ * Stores chat sessions for users and guests
+ */
+export const aiChatConversations = pgTable("ai_chat_conversations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id), // null for public/guest
+  sessionId: text("session_id").notNull().unique(),
+  title: text("title"),
+  status: text("status").notNull().default("active"), // active, archived
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/**
+ * AI Chat Messages
+ * Individual messages in a conversation
+ */
+export const aiChatMessages = pgTable("ai_chat_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => aiChatConversations.id).notNull(),
+  role: text("role").notNull(), // user, assistant, system
+  content: text("content").notNull(),
+  contentType: text("content_type").notNull().default("text"), // text, markdown, html, image
+  modelUsed: text("model_used"), // which AI model was used
+  functionCalls: text("function_calls"), // JSON array of function calls
+  attachments: text("attachments"), // JSON array of attachment URLs
+  tokenCount: integer("token_count"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
+ * AI Chat Attachments
+ * File uploads in AI chat
+ */
+export const aiChatAttachments = pgTable("ai_chat_attachments", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").references(() => aiChatMessages.id),
+  conversationId: integer("conversation_id").references(() => aiChatConversations.id).notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  fileUrl: text("file_url").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
+ * AI Function Call Logs
+ * Audit trail for AI function executions
+ */
+export const aiFunctionCallLogs = pgTable("ai_function_call_logs", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").references(() => aiChatMessages.id),
+  userId: integer("user_id").references(() => users.id),
+  functionName: text("function_name").notNull(),
+  functionArgs: text("function_args").notNull(), // JSON string
+  result: text("result"), // JSON string
+  status: text("status").notNull().default("pending"), // pending, success, error, blocked
+  blockedReason: text("blocked_reason"),
+  executionTimeMs: integer("execution_time_ms"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Insert schemas
+export const insertAiChatConversationSchema = createInsertSchema(aiChatConversations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAiChatMessageSchema = createInsertSchema(aiChatMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAiChatAttachmentSchema = createInsertSchema(aiChatAttachments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAiFunctionCallLogSchema = createInsertSchema(aiFunctionCallLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Types
+export type AiChatConversation = typeof aiChatConversations.$inferSelect;
+export type InsertAiChatConversation = z.infer<typeof insertAiChatConversationSchema>;
+export type AiChatMessage = typeof aiChatMessages.$inferSelect;
+export type InsertAiChatMessage = z.infer<typeof insertAiChatMessageSchema>;
+export type AiChatAttachment = typeof aiChatAttachments.$inferSelect;
+export type InsertAiChatAttachment = z.infer<typeof insertAiChatAttachmentSchema>;
+export type AiFunctionCallLog = typeof aiFunctionCallLogs.$inferSelect;
+export type InsertAiFunctionCallLog = z.infer<typeof insertAiFunctionCallLogSchema>;
+
+// Chat request/response schemas
+export const aiChatRequestSchema = z.object({
+  message: z.string().min(1).max(10000),
+  conversationId: z.string().optional(),
+  modelPreference: z.enum(["auto", "fast", "reasoning", "code"]).optional().default("auto"),
+  attachments: z.array(z.object({
+    fileName: z.string(),
+    fileType: z.string(),
+    fileUrl: z.string(),
+  })).optional(),
+});
+
+export type AiChatRequest = z.infer<typeof aiChatRequestSchema>;

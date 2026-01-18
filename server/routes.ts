@@ -16,6 +16,7 @@ import { registerCasinoRoutes } from "./casino";
 import { registerSettingsRoutes, getSystemSetting } from "./settings";
 import { registerReportRoutes } from "./reports";
 import { registerManualWithdrawalRoutes } from "./manual-withdrawals";
+import { registerAIChatRoutes } from "./ai-chat";
 import { seedAdminAccount } from "./seed";
 import { sessions, generateSessionToken, authMiddleware } from "./auth";
 import { initializeEmailTransporter, sendWelcomeEmail, sendTransferReceivedEmail, sendTransferSentEmail } from "./email";
@@ -42,6 +43,7 @@ export async function registerRoutes(
   registerSettingsRoutes(app, authMiddleware);
   registerReportRoutes(app);
   registerManualWithdrawalRoutes(app);
+  registerAIChatRoutes(app, authMiddleware);
 
   app.post("/api/auth/register", async (req, res) => {
     try {
