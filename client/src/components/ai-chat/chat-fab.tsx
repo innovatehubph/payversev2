@@ -18,23 +18,30 @@ interface ChatFabProps {
 export function ChatFab({ className }: ChatFabProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const [aiStatus, setAiStatus] = useState<{ enabled: boolean; configured: boolean }>({ enabled: true, configured: false });
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(true);
 
-  // Check if AI is enabled from system settings
+  // Check AI status on mount
   useEffect(() => {
     getAiStatus()
       .then((status) => {
-        setAiStatus({ enabled: status.enabled, configured: status.configured });
+        console.log("[ChatFab] AI Status:", status);
+        setIsEnabled(status.enabled);
+        setIsConfigured(status.configured);
       })
       .catch((err) => {
-        console.log("[ChatFab] Status check failed, showing FAB anyway:", err);
-        // Show FAB anyway - let user see it and get proper error in chat
-        setAiStatus({ enabled: true, configured: false });
+        console.log("[ChatFab] Status check failed:", err);
+        // Default to enabled but not configured
+        setIsEnabled(true);
+        setIsConfigured(false);
       });
   }, []);
 
-  // Only hide if explicitly disabled in settings (enabled === false)
-  if (aiStatus.enabled === false) return null;
+  // Hide only if explicitly disabled
+  if (!isEnabled) {
+    console.log("[ChatFab] Hidden - AI is disabled in settings");
+    return null;
+  }
 
   return (
     <>
@@ -71,7 +78,7 @@ export function ChatFab({ className }: ChatFabProps) {
         }}
         isMinimized={isMinimized}
         onToggleMinimize={() => setIsMinimized(!isMinimized)}
-        isConfigured={aiStatus?.configured ?? false}
+        isConfigured={isConfigured}
       />
 
       {/* Backdrop for mobile */}

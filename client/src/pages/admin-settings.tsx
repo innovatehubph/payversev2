@@ -32,6 +32,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getAuthToken } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
 
 interface SystemSetting {
   id: number;
@@ -239,6 +240,45 @@ export default function AdminSettings() {
     }
   };
 
+  // Check if a setting is a boolean toggle (true/false value)
+  const isBooleanSetting = (key: string): boolean => {
+    const booleanSettings = [
+      "AI_ENABLED",
+      "SMS_NOTIFICATIONS_ENABLED",
+      "KYC_AUTO_APPROVAL",
+      "PIN_REQUIRED",
+    ];
+    return booleanSettings.includes(key);
+  };
+
+  // Handle boolean toggle change
+  const handleBooleanToggle = async (key: string, currentValue: string) => {
+    const newValue = currentValue === "true" ? "false" : "true";
+    setSaving(key);
+    try {
+      const response = await fetch(`/api/admin/settings/${key}`, {
+        method: "PUT",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ value: newValue }),
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: `${key} ${newValue === "true" ? "enabled" : "disabled"}`
+        });
+        await fetchSettings();
+      } else {
+        const data = await response.json();
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to update setting", variant: "destructive" });
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (user?.role !== "super_admin") {
     return null;
   }
@@ -321,70 +361,91 @@ export default function AdminSettings() {
                         {setting.description && (
                           <p className="text-sm text-muted-foreground mb-2">{setting.description}</p>
                         )}
-                        {setting.hasValue && (
+                        {setting.hasValue && !isBooleanSetting(setting.key) && (
                           <p className="text-xs text-muted-foreground mb-2 font-mono bg-muted/50 px-2 py-1 rounded">
                             Current: {setting.isEncrypted ? "••••••••" : setting.value}
                           </p>
                         )}
 
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              type={showValues[setting.key] ? "text" : "password"}
-                              placeholder={setting.isEncrypted
-                                ? (setting.hasValue ? "Enter new value to change..." : "Enter value...")
-                                : "Enter value..."}
-                              value={editValues[setting.key] ?? ""}
-                              onChange={(e) =>
-                                setEditValues((prev) => ({ ...prev, [setting.key]: e.target.value }))
-                              }
-                              className="pr-10 font-mono text-sm"
+                        {/* Boolean settings use a toggle switch */}
+                        {isBooleanSetting(setting.key) ? (
+                          <div className="flex items-center gap-3 mt-2">
+                            <Switch
+                              checked={setting.value === "true"}
+                              onCheckedChange={() => handleBooleanToggle(setting.key, setting.value || "false")}
+                              disabled={saving === setting.key}
                             />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-                              onClick={() =>
-                                setShowValues((prev) => ({ ...prev, [setting.key]: !prev[setting.key] }))
-                              }
-                            >
-                              {showValues[setting.key] ? (
-                                <EyeOff className="h-4 w-4" />
-                              ) : (
-                                <Eye className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={() => handleSaveSetting(setting.key)}
-                            disabled={!editValues[setting.key] || saving === setting.key}
-                          >
-                            {saving === setting.key ? (
-                              <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Save className="h-4 w-4" />
+                            <span className={cn(
+                              "text-sm font-medium",
+                              setting.value === "true" ? "text-green-600" : "text-muted-foreground"
+                            )}>
+                              {setting.value === "true" ? "Enabled" : "Disabled"}
+                            </span>
+                            {saving === setting.key && (
+                              <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
                             )}
-                          </Button>
-                          {/* Test button for OpenRouter API key */}
-                          {setting.key === "OPENROUTER_API_KEY" && setting.hasValue && (
+                          </div>
+                        ) : (
+                          /* Non-boolean settings use text input */
+                          <div className="flex items-center gap-2">
+                            <div className="relative flex-1">
+                              <Input
+                                type={showValues[setting.key] ? "text" : "password"}
+                                placeholder={setting.isEncrypted
+                                  ? (setting.hasValue ? "Enter new value to change..." : "Enter value...")
+                                  : "Enter value..."}
+                                value={editValues[setting.key] ?? ""}
+                                onChange={(e) =>
+                                  setEditValues((prev) => ({ ...prev, [setting.key]: e.target.value }))
+                                }
+                                className="pr-10 font-mono text-sm"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                                onClick={() =>
+                                  setShowValues((prev) => ({ ...prev, [setting.key]: !prev[setting.key] }))
+                                }
+                              >
+                                {showValues[setting.key] ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={handleTestOpenRouter}
-                              disabled={testingApi === "OPENROUTER_API_KEY"}
-                              className="gap-1"
+                              onClick={() => handleSaveSetting(setting.key)}
+                              disabled={!editValues[setting.key] || saving === setting.key}
                             >
-                              {testingApi === "OPENROUTER_API_KEY" ? (
+                              {saving === setting.key ? (
                                 <RefreshCw className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Zap className="h-4 w-4" />
+                                <Save className="h-4 w-4" />
                               )}
-                              Test
                             </Button>
-                          )}
-                        </div>
+                            {/* Test button for OpenRouter API key */}
+                            {setting.key === "OPENROUTER_API_KEY" && setting.hasValue && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleTestOpenRouter}
+                                disabled={testingApi === "OPENROUTER_API_KEY"}
+                                className="gap-1"
+                              >
+                                {testingApi === "OPENROUTER_API_KEY" ? (
+                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Zap className="h-4 w-4" />
+                                )}
+                                Test
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2">
