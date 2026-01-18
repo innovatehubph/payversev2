@@ -19,18 +19,24 @@ export function ChatFab({ className }: ChatFabProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ enabled: boolean; configured: boolean } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Check if AI is enabled (but don't hide the FAB if check fails)
+  // Check if AI is enabled from system settings
   useEffect(() => {
     getAiStatus()
       .then((status) => {
         setAiStatus({ enabled: status.enabled, configured: status.configured });
+        setIsLoading(false);
       })
       .catch(() => {
-        // Still show FAB even if status check fails
-        setAiStatus({ enabled: true, configured: false });
+        // Hide FAB if status check fails (AI likely disabled)
+        setAiStatus({ enabled: false, configured: false });
+        setIsLoading(false);
       });
   }, []);
+
+  // Don't render while loading or if AI is disabled in settings
+  if (isLoading || !aiStatus?.enabled) return null;
 
   return (
     <>
