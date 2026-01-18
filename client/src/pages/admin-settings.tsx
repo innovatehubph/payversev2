@@ -23,6 +23,10 @@ import {
   Mail,
   QrCode,
   Home,
+  Bot,
+  MessageSquare,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { getAuthToken } from "@/lib/api";
@@ -58,6 +62,8 @@ const CATEGORY_ICONS: Record<string, any> = {
   escrow: Shield,
   system: Settings,
   email: Mail,
+  sms: MessageSquare,
+  ai: Bot,
   general: Key,
 };
 
@@ -68,6 +74,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   escrow: "Escrow Settings",
   system: "System Settings",
   email: "Email (SMTP)",
+  sms: "SMS (PhilSMS)",
+  ai: "AI Assistant",
   general: "General",
 };
 
@@ -82,6 +90,7 @@ export default function AdminSettings() {
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState("paygram");
+  const [testingApi, setTestingApi] = useState<string | null>(null);
 
   const getAuthHeaders = () => ({
     "Content-Type": "application/json",
@@ -194,6 +203,39 @@ export default function AdminSettings() {
       }
     } catch (error) {
       toast({ title: "Error", description: "Failed to update agent", variant: "destructive" });
+    }
+  };
+
+  const handleTestOpenRouter = async () => {
+    setTestingApi("OPENROUTER_API_KEY");
+    try {
+      const response = await fetch("/api/admin/settings/test-openrouter", {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast({
+          title: "API Key Valid",
+          description: data.message,
+        });
+      } else {
+        toast({
+          title: "API Key Invalid",
+          description: data.message || "Failed to validate API key",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Test Failed",
+        description: "Failed to test OpenRouter API key",
+        variant: "destructive",
+      });
+    } finally {
+      setTestingApi(null);
     }
   };
 
@@ -325,6 +367,23 @@ export default function AdminSettings() {
                               <Save className="h-4 w-4" />
                             )}
                           </Button>
+                          {/* Test button for OpenRouter API key */}
+                          {setting.key === "OPENROUTER_API_KEY" && setting.hasValue && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleTestOpenRouter}
+                              disabled={testingApi === "OPENROUTER_API_KEY"}
+                              className="gap-1"
+                            >
+                              {testingApi === "OPENROUTER_API_KEY" ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Zap className="h-4 w-4" />
+                              )}
+                              Test
+                            </Button>
+                          )}
                         </div>
                       </div>
 

@@ -11,6 +11,46 @@ import { systemSettings, escrowAgents, users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { clearTokenCache } from "./casino";
 import { clearNexusPayConfigCache } from "./nexuspay";
+import fs from "fs";
+import path from "path";
+
+/**
+ * Update a key in the .env file
+ */
+function updateEnvFile(key: string, value: string): void {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let envContent = "";
+
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, "utf-8");
+    }
+
+    const lines = envContent.split("\n");
+    let found = false;
+
+    const updatedLines = lines.map(line => {
+      if (line.startsWith(`${key}=`)) {
+        found = true;
+        return `${key}=${value}`;
+      }
+      return line;
+    });
+
+    if (!found) {
+      updatedLines.push(`${key}=${value}`);
+    }
+
+    fs.writeFileSync(envPath, updatedLines.join("\n"));
+
+    // Also update process.env for immediate effect
+    process.env[key] = value;
+
+    console.log(`[Settings] Updated .env file: ${key}`);
+  } catch (error) {
+    console.error(`[Settings] Failed to update .env file:`, error);
+  }
+}
 
 // Cache for settings to avoid repeated DB queries
 let settingsCache: Map<string, { value: string; timestamp: number }> = new Map();
@@ -366,6 +406,13 @@ export function registerSettingsRoutes(app: Express, authMiddleware: any) {
         console.log(`[Settings] Cleared PhilSMS cache for ${key}`);
       }
 
+      // If this is an AI setting, also update .env file for immediate effect
+      if (key === "OPENROUTER_API_KEY" || key.startsWith("AI_")) {
+        if (value !== undefined && value !== "") {
+          updateEnvFile(key, value);
+        }
+      }
+
       res.json({
         success: true,
         setting: {
@@ -585,6 +632,87 @@ export function registerSettingsRoutes(app: Express, authMiddleware: any) {
       res.status(500).json({
         success: false,
         message: error.message || "Failed to check SMS balance"
+      });
+    }
+  });
+
+  // Test OpenRouter API key endpoint
+  app.post("/api/admin/settings/test-openrouter", authMiddleware, superAdminOnly, async (req, res) => {
+    try {
+      // Clear cache to get fresh value
+      clearSettingsCache();
+
+      // Get API key from database
+      const apiKey = await getSystemSetting("OPENROUTER_API_KEY", "");
+
+      if (!apiKey) {
+        return res.status(400).json({
+          success: false,
+          message: "OpenRouter API key is not configured. Please enter an API key first."
+        });
+      }
+
+      console.log(`[Settings] Testing OpenRouter API key...`);
+
+      // Make a simple test request to OpenRouter
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://payverse.ph",
+          "X-Title": "PayVerse AI Assistant",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.0-flash-001",
+          messages: [
+            { role: "user", content: "Say 'API key is working!' in exactly those words." }
+          ],
+          max_tokens: 20,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = "API key validation failed";
+
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
+        } catch {
+          // Use raw text if not JSON
+          if (errorText.includes("Invalid API key") || response.status === 401) {
+            errorMessage = "Invalid API key. Please check your OpenRouter API key.";
+          } else if (response.status === 402) {
+            errorMessage = "Insufficient credits on your OpenRouter account.";
+          } else if (response.status === 429) {
+            errorMessage = "Rate limited. Please try again later.";
+          }
+        }
+
+        console.log(`[Settings] OpenRouter API test failed: ${response.status} - ${errorMessage}`);
+        return res.status(400).json({
+          success: false,
+          message: errorMessage
+        });
+      }
+
+      const data = await response.json();
+      const responseText = data.choices?.[0]?.message?.content || "";
+
+      console.log(`[Settings] OpenRouter API test successful. Response: ${responseText}`);
+
+      res.json({
+        success: true,
+        message: "OpenRouter API key is valid and working!",
+        response: responseText,
+        model: data.model || "google/gemini-2.0-flash-001"
+      });
+    } catch (error: any) {
+      console.error("[Settings] OpenRouter test error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to test OpenRouter API key"
       });
     }
   });
