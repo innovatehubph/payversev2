@@ -18,6 +18,7 @@ interface ChatContainerProps {
   isMinimized?: boolean;
   onToggleMinimize?: () => void;
   sessionId?: string;
+  isConfigured?: boolean;
 }
 
 export function ChatContainer({
@@ -26,6 +27,7 @@ export function ChatContainer({
   isMinimized = false,
   onToggleMinimize,
   sessionId,
+  isConfigured = true,
 }: ChatContainerProps) {
   const {
     messages,
@@ -130,24 +132,42 @@ export function ChatContainer({
             </div>
           )}
 
-          {/* Messages */}
-          <ChatMessages
-            messages={messages}
-            isStreaming={isStreaming}
-          />
-
-          {/* Rate limit warning */}
-          {rateLimit && rateLimit.remaining <= 5 && (
-            <div className="px-4 py-2 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 text-xs text-center border-t">
-              {rateLimit.remaining} requests remaining this hour
+          {/* Not configured message */}
+          {!isConfigured && (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Sparkles className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">AI Assistant Not Configured</h3>
+              <p className="text-muted-foreground text-sm max-w-sm">
+                The AI assistant requires an OpenRouter API key to function.
+                Please contact the administrator to configure this feature.
+              </p>
             </div>
           )}
 
-          {/* Input */}
-          <ChatInput
-            onSend={sendMessage}
-            isLoading={isLoading || isStreaming}
-          />
+          {/* Messages */}
+          {isConfigured && (
+            <>
+              <ChatMessages
+                messages={messages}
+                isStreaming={isStreaming}
+              />
+
+              {/* Rate limit warning */}
+              {rateLimit && rateLimit.remaining <= 5 && (
+                <div className="px-4 py-2 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 text-xs text-center border-t">
+                  {rateLimit.remaining} requests remaining this hour
+                </div>
+              )}
+
+              {/* Input */}
+              <ChatInput
+                onSend={sendMessage}
+                isLoading={isLoading || isStreaming}
+              />
+            </>
+          )}
         </>
       )}
     </div>

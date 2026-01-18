@@ -18,24 +18,19 @@ interface ChatFabProps {
 export function ChatFab({ className }: ChatFabProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isEnabled, setIsEnabled] = useState(true);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [aiStatus, setAiStatus] = useState<{ enabled: boolean; configured: boolean } | null>(null);
 
-  // Check if AI is enabled
+  // Check if AI is enabled (but don't hide the FAB if check fails)
   useEffect(() => {
     getAiStatus()
       .then((status) => {
-        setIsEnabled(status.enabled && status.configured);
-        setIsLoaded(true);
+        setAiStatus({ enabled: status.enabled, configured: status.configured });
       })
       .catch(() => {
-        setIsEnabled(false);
-        setIsLoaded(true);
+        // Still show FAB even if status check fails
+        setAiStatus({ enabled: true, configured: false });
       });
   }, []);
-
-  // Don't render if AI is disabled
-  if (!isLoaded || !isEnabled) return null;
 
   return (
     <>
@@ -68,6 +63,7 @@ export function ChatFab({ className }: ChatFabProps) {
         }}
         isMinimized={isMinimized}
         onToggleMinimize={() => setIsMinimized(!isMinimized)}
+        isConfigured={aiStatus?.configured ?? false}
       />
 
       {/* Backdrop for mobile */}
