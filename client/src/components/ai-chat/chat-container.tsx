@@ -54,12 +54,14 @@ export function ChatContainer({
   return (
     <div
       className={cn(
-        "fixed bottom-20 right-4 md:bottom-4 md:right-4 z-50",
+        "fixed z-[9999]",
+        // Position: above bottom nav on mobile, bottom-right on desktop
+        "bottom-20 right-4 sm:bottom-20 sm:right-4 md:bottom-8 md:right-8",
         "flex flex-col bg-background border rounded-xl shadow-2xl",
         "transition-all duration-300 ease-out",
         isMinimized
           ? "w-80 h-14"
-          : "w-[calc(100vw-2rem)] md:w-[400px] h-[500px] md:h-[600px]"
+          : "w-[calc(100vw-2rem)] sm:w-[calc(100vw-2rem)] md:w-[420px] h-[70vh] max-h-[600px] min-h-[400px]"
       )}
     >
       {/* Header */}
