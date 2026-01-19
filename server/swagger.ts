@@ -84,7 +84,9 @@ const options: swaggerJsdoc.Options = {
       { name: "KYC", description: "Know Your Customer verification" },
       { name: "Admin", description: "Admin dashboard and user management" },
       { name: "Manual Deposits", description: "Manual P2P deposit system" },
-      { name: "Manual Withdrawals", description: "Manual withdrawal to bank/e-wallet accounts" }
+      { name: "Manual Withdrawals", description: "Manual withdrawal to bank/e-wallet accounts" },
+      { name: "AI Chat", description: "Intelligent AI assistant for user support and guidance" },
+      { name: "AI FAQs", description: "AI-powered FAQ system with learning capabilities" }
     ],
     paths: {
       "/api/auth/register": {
@@ -2228,6 +2230,330 @@ const options: swaggerJsdoc.Options = {
             "500": { description: "Failed to fetch balance" }
           }
         }
+      },
+      "/api/ai/chat": {
+        post: {
+          tags: ["AI Chat"],
+          summary: "Send message to AI assistant",
+          description: "Interact with the PayVerse AI assistant. Supports streaming responses via Server-Sent Events. The AI can help with account questions, navigation guidance, transaction help, and general support. Authenticated users get personalized responses.",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["messages"],
+                  properties: {
+                    messages: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          role: { type: "string", enum: ["user", "assistant"], description: "Message role" },
+                          content: { type: "string", description: "Message content" }
+                        }
+                      },
+                      description: "Conversation history"
+                    },
+                    conversationId: { type: "string", description: "Optional conversation ID for continuity" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "AI response stream (SSE)",
+              content: {
+                "text/event-stream": {
+                  schema: {
+                    type: "string",
+                    description: "Server-Sent Events stream with AI response chunks"
+                  }
+                }
+              }
+            },
+            "429": { description: "Rate limit exceeded" },
+            "500": { description: "AI service error" }
+          }
+        }
+      },
+      "/api/ai/faqs": {
+        get: {
+          tags: ["AI FAQs"],
+          summary: "Get all FAQs",
+          description: "Retrieve all approved FAQs. Results are filtered based on user role - guests see general FAQs, authenticated users see role-specific content. Admin-sensitive FAQs are hidden from regular users.",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "FAQ list retrieved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      faqs: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer" },
+                            question: { type: "string" },
+                            answer: { type: "string" },
+                            category: { type: "string" },
+                            hitCount: { type: "integer" },
+                            priority: { type: "integer" }
+                          }
+                        }
+                      },
+                      categories: {
+                        type: "array",
+                        items: { type: "string" }
+                      },
+                      userRole: { type: "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/ai/faqs/search": {
+        get: {
+          tags: ["AI FAQs"],
+          summary: "Search FAQs",
+          description: "Search FAQs by keyword. Uses semantic matching to find relevant questions and answers.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "q",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Search query"
+            }
+          ],
+          responses: {
+            "200": {
+              description: "Search results",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      faqs: { type: "array", items: { type: "object" } },
+                      query: { type: "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/ai/faqs/popular": {
+        get: {
+          tags: ["AI FAQs"],
+          summary: "Get popular FAQs",
+          description: "Retrieve most frequently accessed FAQs, sorted by hit count. Useful for landing pages and quick help sections.",
+          parameters: [
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", default: 5 },
+              description: "Number of FAQs to return"
+            }
+          ],
+          responses: {
+            "200": {
+              description: "Popular FAQs",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      faqs: { type: "array", items: { type: "object" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/ai/faqs/{id}/hit": {
+        post: {
+          tags: ["AI FAQs"],
+          summary: "Track FAQ view",
+          description: "Increment the hit counter for a FAQ. Called when a user expands/views a FAQ answer.",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" },
+              description: "FAQ ID"
+            }
+          ],
+          responses: {
+            "200": { description: "Hit recorded" },
+            "404": { description: "FAQ not found" }
+          }
+        }
+      },
+      "/api/ai/feedback": {
+        post: {
+          tags: ["AI Chat"],
+          summary: "Submit feedback on AI response",
+          description: "Rate an AI response and optionally provide text feedback. Used to improve AI responses and generate FAQs from positive interactions.",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["messageId", "conversationId", "rating"],
+                  properties: {
+                    messageId: { type: "string", description: "The AI message ID" },
+                    conversationId: { type: "string", description: "Conversation ID" },
+                    rating: { type: "integer", minimum: 1, maximum: 5, description: "Rating from 1-5" },
+                    feedback: { type: "string", description: "Optional text feedback" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "Feedback recorded" },
+            "400": { description: "Invalid request" }
+          }
+        }
+      },
+      "/api/ai/admin/faqs": {
+        get: {
+          tags: ["AI FAQs"],
+          summary: "Admin: Get all FAQs including pending",
+          description: "Admin endpoint to retrieve all FAQs including those pending approval or rejected.",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "All FAQs with status" },
+            "403": { description: "Admin access required" }
+          }
+        }
+      },
+      "/api/ai/admin/faqs/{id}": {
+        patch: {
+          tags: ["AI FAQs"],
+          summary: "Admin: Update FAQ",
+          description: "Update a FAQ's question, answer, category, status, or priority.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" }
+            }
+          ],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    question: { type: "string" },
+                    answer: { type: "string" },
+                    category: { type: "string" },
+                    status: { type: "string", enum: ["pending", "approved", "rejected"] },
+                    priority: { type: "integer" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": { description: "FAQ updated" },
+            "403": { description: "Admin access required" },
+            "404": { description: "FAQ not found" }
+          }
+        },
+        delete: {
+          tags: ["AI FAQs"],
+          summary: "Admin: Delete FAQ",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" }
+            }
+          ],
+          responses: {
+            "200": { description: "FAQ deleted" },
+            "403": { description: "Admin access required" }
+          }
+        }
+      },
+      "/api/ai/admin/suggestions": {
+        get: {
+          tags: ["AI FAQs"],
+          summary: "Admin: Get training suggestions",
+          description: "Get AI-generated suggestions for new FAQs based on user interactions and feedback.",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Training suggestions",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      suggestions: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer" },
+                            suggestedQuestion: { type: "string" },
+                            suggestedAnswer: { type: "string" },
+                            suggestedCategory: { type: "string" },
+                            confidence: { type: "number" },
+                            sourceInteractionCount: { type: "integer" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "403": { description: "Admin access required" }
+          }
+        }
+      },
+      "/api/ai/admin/suggestions/{id}/approve": {
+        post: {
+          tags: ["AI FAQs"],
+          summary: "Admin: Approve training suggestion",
+          description: "Convert a training suggestion into an approved FAQ.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" }
+            }
+          ],
+          responses: {
+            "200": { description: "Suggestion approved and converted to FAQ" },
+            "403": { description: "Admin access required" }
+          }
+        }
       }
     }
   },
@@ -2406,6 +2732,11 @@ const docsHtml = `
           <div class="nav-section-title">Security</div>
           <a href="#pin" class="nav-link">PIN Protection</a>
           <a href="#kyc" class="nav-link">KYC Verification</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">AI Features</div>
+          <a href="#ai-assistant" class="nav-link">AI Assistant</a>
+          <a href="#ai-faqs" class="nav-link">FAQ System</a>
         </div>
         <div class="nav-section">
           <div class="nav-section-title">API Reference</div>
@@ -2601,6 +2932,111 @@ Content-Type: application/json
           <p><span class="badge badge-warning">1-24 hrs</span> <span class="badge badge-info">PIN Required</span></p>
         </section>
 
+        <section id="ai-assistant">
+          <h2>AI Assistant</h2>
+          <p>PayVerse includes an intelligent AI assistant that can help you with:</p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card-icon">💬</div>
+              <h4>Real-time Support</h4>
+              <p>Get instant answers to your questions about transactions, features, and account management.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">🧭</div>
+              <h4>Navigation Help</h4>
+              <p>The AI knows the exact app layout and can guide you step-by-step through any feature.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">🔒</div>
+              <h4>Secure Design</h4>
+              <p>The AI is protected against prompt injection and never exposes sensitive data.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">📚</div>
+              <h4>Learning System</h4>
+              <p>Improves over time by learning from real user interactions and feedback.</p>
+            </div>
+          </div>
+
+          <h3>Using the AI Chat</h3>
+          <pre><code>POST /api/ai/chat
+Content-Type: application/json
+Authorization: Bearer your_token (optional)
+
+{
+  "messages": [
+    { "role": "user", "content": "How do I cash out to GCash?" }
+  ],
+  "conversationId": "optional-conversation-id"
+}</code></pre>
+
+          <div class="callout callout-info">
+            <div class="callout-title">ℹ️ Streaming Response</div>
+            <p>The AI chat uses Server-Sent Events (SSE) for real-time streaming responses.</p>
+          </div>
+
+          <h3>Rate Limits</h3>
+          <table>
+            <thead>
+              <tr><th>User Type</th><th>Requests/Hour</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Guest</td><td>25</td></tr>
+              <tr><td>Authenticated User</td><td>50</td></tr>
+              <tr><td>Admin</td><td>200</td></tr>
+              <tr><td>Super Admin</td><td>500</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="ai-faqs">
+          <h2>AI-Powered FAQs</h2>
+          <p>The FAQ system automatically learns from user interactions and feedback to provide accurate, up-to-date answers.</p>
+
+          <h3>How It Works</h3>
+          <ol>
+            <li><strong>User Interaction:</strong> Users chat with the AI assistant</li>
+            <li><strong>Feedback Collection:</strong> Users can rate AI responses (1-5 stars)</li>
+            <li><strong>Pattern Learning:</strong> System identifies common questions and successful answers</li>
+            <li><strong>Admin Approval:</strong> Admins review and approve FAQs before they go public</li>
+            <li><strong>Role-based Display:</strong> FAQs are filtered based on user role to prevent data leakage</li>
+          </ol>
+
+          <h3>Fetch FAQs</h3>
+          <pre><code>GET /api/ai/faqs
+Authorization: Bearer your_token (optional)
+
+Response:
+{
+  "faqs": [
+    {
+      "id": 1,
+      "question": "How do I cash out to GCash?",
+      "answer": "Navigate to Dashboard > Cash Out > Select GCash...",
+      "category": "withdrawal",
+      "hitCount": 42,
+      "priority": 1
+    }
+  ],
+  "categories": ["withdrawal", "topup", "account"],
+  "userRole": "user"
+}</code></pre>
+
+          <h3>Submit Feedback</h3>
+          <pre><code>POST /api/ai/feedback
+Authorization: Bearer your_token
+
+{
+  "messageId": "msg_abc123",
+  "conversationId": "conv_xyz789",
+  "rating": 5,
+  "feedback": "Very helpful explanation!"
+}</code></pre>
+
+          <p><span class="badge badge-success">Auto-Learning</span> <span class="badge badge-info">Role-Filtered</span></p>
+        </section>
+
         <section id="pin">
           <h2>PIN Protection</h2>
           <p>Your 6-digit PIN is required for all financial transactions:</p>
@@ -2650,6 +3086,11 @@ Content-Type: application/json
               <tr><td><code>/api/nexuspay/cashout</code></td><td>POST</td><td>Withdraw to e-wallet</td></tr>
               <tr><td><code>/api/casino/deposit</code></td><td>POST</td><td>Buy casino chips</td></tr>
               <tr><td><code>/api/casino/withdraw</code></td><td>POST</td><td>Sell casino chips</td></tr>
+              <tr><td><code>/api/ai/chat</code></td><td>POST</td><td>AI assistant chat (SSE stream)</td></tr>
+              <tr><td><code>/api/ai/faqs</code></td><td>GET</td><td>Get all FAQs</td></tr>
+              <tr><td><code>/api/ai/faqs/search</code></td><td>GET</td><td>Search FAQs by keyword</td></tr>
+              <tr><td><code>/api/ai/faqs/popular</code></td><td>GET</td><td>Get popular FAQs</td></tr>
+              <tr><td><code>/api/ai/feedback</code></td><td>POST</td><td>Rate AI response</td></tr>
             </tbody>
           </table>
           <p style="margin-top: 24px;"><a href="/api/swagger" class="btn-primary">View Full API Documentation →</a></p>
