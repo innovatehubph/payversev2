@@ -746,6 +746,103 @@ export type InsertAiChatAttachment = z.infer<typeof insertAiChatAttachmentSchema
 export type AiFunctionCallLog = typeof aiFunctionCallLogs.$inferSelect;
 export type InsertAiFunctionCallLog = z.infer<typeof insertAiFunctionCallLogSchema>;
 
+// ============================================
+// AI FAQ Learning System Tables
+// ============================================
+
+// AI FAQs - Curated frequently asked questions learned from interactions
+export const aiFaqs = pgTable("ai_faqs", {
+  id: serial("id").primaryKey(),
+  question: text("question").notNull(), // The question pattern
+  questionVariants: text("question_variants"), // JSON array of alternative phrasings
+  answer: text("answer").notNull(), // The curated answer
+  category: text("category").notNull().default("general"), // general, kyc, transactions, security, casino, etc.
+  keywords: text("keywords"), // JSON array of keywords for matching
+  priority: integer("priority").notNull().default(0), // Higher = shown first
+  hitCount: integer("hit_count").notNull().default(0), // How many times this FAQ matched
+  isActive: boolean("is_active").notNull().default(true),
+  isApproved: boolean("is_approved").notNull().default(false), // Admin approval required
+  approvedBy: integer("approved_by").references(() => users.id),
+  createdFromMessageId: integer("created_from_message_id").references(() => aiChatMessages.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// AI Interaction Feedback - User ratings on AI responses
+export const aiInteractionFeedback = pgTable("ai_interaction_feedback", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").references(() => aiChatMessages.id).notNull(),
+  conversationId: integer("conversation_id").references(() => aiChatConversations.id).notNull(),
+  userId: integer("user_id").references(() => users.id), // null for guests
+  rating: text("rating").notNull(), // "helpful", "not_helpful", "incorrect"
+  feedbackText: text("feedback_text"), // Optional user comment
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// AI Learned Patterns - Automatically extracted Q&A patterns from successful interactions
+export const aiLearnedPatterns = pgTable("ai_learned_patterns", {
+  id: serial("id").primaryKey(),
+  questionPattern: text("question_pattern").notNull(), // Normalized question
+  answerPattern: text("answer_pattern").notNull(), // Successful answer
+  category: text("category"),
+  confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }).notNull().default("0"), // 0-100
+  occurrenceCount: integer("occurrence_count").notNull().default(1), // How many times this pattern appeared
+  positiveRatings: integer("positive_ratings").notNull().default(0),
+  negativeRatings: integer("negative_ratings").notNull().default(0),
+  status: text("status").notNull().default("pending"), // pending, approved, rejected
+  promotedToFaqId: integer("promoted_to_faq_id").references(() => aiFaqs.id),
+  lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// AI Training Suggestions - Admin queue for reviewing learned patterns
+export const aiTrainingSuggestions = pgTable("ai_training_suggestions", {
+  id: serial("id").primaryKey(),
+  learnedPatternId: integer("learned_pattern_id").references(() => aiLearnedPatterns.id),
+  originalQuestion: text("original_question").notNull(),
+  originalAnswer: text("original_answer").notNull(),
+  suggestedCategory: text("suggested_category"),
+  reason: text("reason"), // Why this was suggested (high ratings, frequent, etc.)
+  status: text("status").notNull().default("pending"), // pending, approved, rejected, merged
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  adminNotes: text("admin_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Insert schemas for FAQ tables
+export const insertAiFaqSchema = createInsertSchema(aiFaqs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAiInteractionFeedbackSchema = createInsertSchema(aiInteractionFeedback).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAiLearnedPatternSchema = createInsertSchema(aiLearnedPatterns).omit({
+  id: true,
+  createdAt: true,
+  lastSeenAt: true,
+});
+
+export const insertAiTrainingSuggestionSchema = createInsertSchema(aiTrainingSuggestions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Types for FAQ tables
+export type AiFaq = typeof aiFaqs.$inferSelect;
+export type InsertAiFaq = z.infer<typeof insertAiFaqSchema>;
+export type AiInteractionFeedback = typeof aiInteractionFeedback.$inferSelect;
+export type InsertAiInteractionFeedback = z.infer<typeof insertAiInteractionFeedbackSchema>;
+export type AiLearnedPattern = typeof aiLearnedPatterns.$inferSelect;
+export type InsertAiLearnedPattern = z.infer<typeof insertAiLearnedPatternSchema>;
+export type AiTrainingSuggestion = typeof aiTrainingSuggestions.$inferSelect;
+export type InsertAiTrainingSuggestion = z.infer<typeof insertAiTrainingSuggestionSchema>;
+
 // Chat request/response schemas
 export const aiChatRequestSchema = z.object({
   message: z.string().min(1).max(10000),

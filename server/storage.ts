@@ -1,6 +1,6 @@
 import { db, pool } from "../db";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { users, transactions, paygramConnections, cryptoInvoices, cryptoWithdrawals, adminAuditLogs, balanceAdjustments, manualPaymentMethods, manualDepositRequests, emailOtps, kycDocuments, userTutorials, casinoLinks, casinoTransactions, userBankAccounts, manualWithdrawalRequests, aiChatConversations, aiChatMessages, aiChatAttachments, aiFunctionCallLogs, type User, type InsertUser, type Transaction, type InsertTransaction, type PaygramConnection, type CryptoInvoice, type CryptoWithdrawal, type AdminAuditLog, type InsertAdminAuditLog, type BalanceAdjustment, type InsertBalanceAdjustment, type ManualPaymentMethod, type InsertManualPaymentMethod, type ManualDepositRequest, type InsertManualDepositRequest, type EmailOtp, type InsertEmailOtp, type KycDocument, type InsertKycDocument, type CasinoLink, type InsertCasinoLink, type CasinoTransaction, type InsertCasinoTransaction, type UserBankAccount, type InsertUserBankAccount, type ManualWithdrawalRequest, type InsertManualWithdrawal, type AiChatConversation, type InsertAiChatConversation, type AiChatMessage, type InsertAiChatMessage, type AiChatAttachment, type InsertAiChatAttachment, type AiFunctionCallLog, type InsertAiFunctionCallLog } from "@shared/schema";
+import { users, transactions, paygramConnections, cryptoInvoices, cryptoWithdrawals, adminAuditLogs, balanceAdjustments, manualPaymentMethods, manualDepositRequests, emailOtps, kycDocuments, userTutorials, casinoLinks, casinoTransactions, userBankAccounts, manualWithdrawalRequests, aiChatConversations, aiChatMessages, aiChatAttachments, aiFunctionCallLogs, aiFaqs, aiInteractionFeedback, aiLearnedPatterns, aiTrainingSuggestions, type User, type InsertUser, type Transaction, type InsertTransaction, type PaygramConnection, type CryptoInvoice, type CryptoWithdrawal, type AdminAuditLog, type InsertAdminAuditLog, type BalanceAdjustment, type InsertBalanceAdjustment, type ManualPaymentMethod, type InsertManualPaymentMethod, type ManualDepositRequest, type InsertManualDepositRequest, type EmailOtp, type InsertEmailOtp, type KycDocument, type InsertKycDocument, type CasinoLink, type InsertCasinoLink, type CasinoTransaction, type InsertCasinoTransaction, type UserBankAccount, type InsertUserBankAccount, type ManualWithdrawalRequest, type InsertManualWithdrawal, type AiChatConversation, type InsertAiChatConversation, type AiChatMessage, type InsertAiChatMessage, type AiChatAttachment, type InsertAiChatAttachment, type AiFunctionCallLog, type InsertAiFunctionCallLog, type AiFaq, type InsertAiFaq, type AiInteractionFeedback, type InsertAiInteractionFeedback, type AiLearnedPattern, type InsertAiLearnedPattern, type AiTrainingSuggestion, type InsertAiTrainingSuggestion } from "@shared/schema";
 import { eq, desc, or, sql, ilike, and, gt, lt, inArray, isNull } from "drizzle-orm";
 
 export interface IStorage {
@@ -152,6 +152,31 @@ export interface IStorage {
   createAiFunctionCallLog(data: InsertAiFunctionCallLog): Promise<AiFunctionCallLog>;
   updateAiFunctionCallLog(id: number, updates: Partial<AiFunctionCallLog>): Promise<AiFunctionCallLog | undefined>;
   getAiFunctionCallLogsByMessageId(messageId: number): Promise<AiFunctionCallLog[]>;
+
+  // AI FAQ Learning
+  createAiFaq(data: InsertAiFaq): Promise<AiFaq>;
+  getAiFaq(id: number): Promise<AiFaq | undefined>;
+  getActiveFaqs(): Promise<AiFaq[]>;
+  getApprovedFaqs(): Promise<AiFaq[]>;
+  getFaqsByCategory(category: string): Promise<AiFaq[]>;
+  updateAiFaq(id: number, updates: Partial<AiFaq>): Promise<AiFaq | undefined>;
+  incrementFaqHitCount(id: number): Promise<void>;
+  searchFaqs(query: string): Promise<AiFaq[]>;
+
+  createAiInteractionFeedback(data: InsertAiInteractionFeedback): Promise<AiInteractionFeedback>;
+  getFeedbackByMessageId(messageId: number): Promise<AiInteractionFeedback | undefined>;
+  getFeedbackStats(): Promise<{ helpful: number; notHelpful: number; incorrect: number }>;
+
+  createAiLearnedPattern(data: InsertAiLearnedPattern): Promise<AiLearnedPattern>;
+  getAiLearnedPattern(id: number): Promise<AiLearnedPattern | undefined>;
+  findSimilarPattern(questionPattern: string): Promise<AiLearnedPattern | undefined>;
+  updateAiLearnedPattern(id: number, updates: Partial<AiLearnedPattern>): Promise<AiLearnedPattern | undefined>;
+  getPendingPatterns(limit?: number): Promise<AiLearnedPattern[]>;
+  getHighConfidencePatterns(minConfidence?: number): Promise<AiLearnedPattern[]>;
+
+  createAiTrainingSuggestion(data: InsertAiTrainingSuggestion): Promise<AiTrainingSuggestion>;
+  getPendingTrainingSuggestions(): Promise<AiTrainingSuggestion[]>;
+  updateAiTrainingSuggestion(id: number, updates: Partial<AiTrainingSuggestion>): Promise<AiTrainingSuggestion | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1710,6 +1735,160 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(aiFunctionCallLogs)
       .where(eq(aiFunctionCallLogs.messageId, messageId))
       .orderBy(aiFunctionCallLogs.createdAt);
+  }
+
+  // ============================================
+  // AI FAQ Learning Methods
+  // ============================================
+
+  async createAiFaq(data: InsertAiFaq): Promise<AiFaq> {
+    const [faq] = await db.insert(aiFaqs).values(data).returning();
+    return faq;
+  }
+
+  async getAiFaq(id: number): Promise<AiFaq | undefined> {
+    const [faq] = await db.select().from(aiFaqs).where(eq(aiFaqs.id, id));
+    return faq;
+  }
+
+  async getActiveFaqs(): Promise<AiFaq[]> {
+    return await db.select().from(aiFaqs)
+      .where(eq(aiFaqs.isActive, true))
+      .orderBy(desc(aiFaqs.priority), desc(aiFaqs.hitCount));
+  }
+
+  async getApprovedFaqs(): Promise<AiFaq[]> {
+    return await db.select().from(aiFaqs)
+      .where(and(eq(aiFaqs.isActive, true), eq(aiFaqs.isApproved, true)))
+      .orderBy(desc(aiFaqs.priority), desc(aiFaqs.hitCount));
+  }
+
+  async getFaqsByCategory(category: string): Promise<AiFaq[]> {
+    return await db.select().from(aiFaqs)
+      .where(and(eq(aiFaqs.category, category), eq(aiFaqs.isActive, true), eq(aiFaqs.isApproved, true)))
+      .orderBy(desc(aiFaqs.priority));
+  }
+
+  async updateAiFaq(id: number, updates: Partial<AiFaq>): Promise<AiFaq | undefined> {
+    const [faq] = await db.update(aiFaqs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(aiFaqs.id, id))
+      .returning();
+    return faq;
+  }
+
+  async incrementFaqHitCount(id: number): Promise<void> {
+    await db.update(aiFaqs)
+      .set({ hitCount: sql`${aiFaqs.hitCount} + 1` })
+      .where(eq(aiFaqs.id, id));
+  }
+
+  async searchFaqs(query: string): Promise<AiFaq[]> {
+    const searchTerm = `%${query.toLowerCase()}%`;
+    return await db.select().from(aiFaqs)
+      .where(and(
+        eq(aiFaqs.isActive, true),
+        eq(aiFaqs.isApproved, true),
+        or(
+          ilike(aiFaqs.question, searchTerm),
+          ilike(aiFaqs.answer, searchTerm),
+          ilike(aiFaqs.keywords, searchTerm)
+        )
+      ))
+      .orderBy(desc(aiFaqs.priority), desc(aiFaqs.hitCount))
+      .limit(10);
+  }
+
+  async createAiInteractionFeedback(data: InsertAiInteractionFeedback): Promise<AiInteractionFeedback> {
+    const [feedback] = await db.insert(aiInteractionFeedback).values(data).returning();
+    return feedback;
+  }
+
+  async getFeedbackByMessageId(messageId: number): Promise<AiInteractionFeedback | undefined> {
+    const [feedback] = await db.select().from(aiInteractionFeedback)
+      .where(eq(aiInteractionFeedback.messageId, messageId));
+    return feedback;
+  }
+
+  async getFeedbackStats(): Promise<{ helpful: number; notHelpful: number; incorrect: number }> {
+    const results = await db.select({
+      rating: aiInteractionFeedback.rating,
+      count: sql<number>`count(*)::int`
+    })
+      .from(aiInteractionFeedback)
+      .groupBy(aiInteractionFeedback.rating);
+
+    const stats = { helpful: 0, notHelpful: 0, incorrect: 0 };
+    for (const row of results) {
+      if (row.rating === 'helpful') stats.helpful = row.count;
+      else if (row.rating === 'not_helpful') stats.notHelpful = row.count;
+      else if (row.rating === 'incorrect') stats.incorrect = row.count;
+    }
+    return stats;
+  }
+
+  async createAiLearnedPattern(data: InsertAiLearnedPattern): Promise<AiLearnedPattern> {
+    const [pattern] = await db.insert(aiLearnedPatterns).values(data).returning();
+    return pattern;
+  }
+
+  async getAiLearnedPattern(id: number): Promise<AiLearnedPattern | undefined> {
+    const [pattern] = await db.select().from(aiLearnedPatterns).where(eq(aiLearnedPatterns.id, id));
+    return pattern;
+  }
+
+  async findSimilarPattern(questionPattern: string): Promise<AiLearnedPattern | undefined> {
+    // Simple similarity check - in production, use vector embeddings or fuzzy matching
+    const searchTerm = `%${questionPattern.toLowerCase().substring(0, 50)}%`;
+    const [pattern] = await db.select().from(aiLearnedPatterns)
+      .where(ilike(aiLearnedPatterns.questionPattern, searchTerm))
+      .limit(1);
+    return pattern;
+  }
+
+  async updateAiLearnedPattern(id: number, updates: Partial<AiLearnedPattern>): Promise<AiLearnedPattern | undefined> {
+    const [pattern] = await db.update(aiLearnedPatterns)
+      .set({ ...updates, lastSeenAt: new Date() })
+      .where(eq(aiLearnedPatterns.id, id))
+      .returning();
+    return pattern;
+  }
+
+  async getPendingPatterns(limit: number = 50): Promise<AiLearnedPattern[]> {
+    return await db.select().from(aiLearnedPatterns)
+      .where(eq(aiLearnedPatterns.status, 'pending'))
+      .orderBy(desc(aiLearnedPatterns.occurrenceCount), desc(aiLearnedPatterns.positiveRatings))
+      .limit(limit);
+  }
+
+  async getHighConfidencePatterns(minConfidence: number = 70): Promise<AiLearnedPattern[]> {
+    return await db.select().from(aiLearnedPatterns)
+      .where(and(
+        eq(aiLearnedPatterns.status, 'pending'),
+        gt(aiLearnedPatterns.confidenceScore, minConfidence.toString())
+      ))
+      .orderBy(desc(aiLearnedPatterns.confidenceScore))
+      .limit(20);
+  }
+
+  async createAiTrainingSuggestion(data: InsertAiTrainingSuggestion): Promise<AiTrainingSuggestion> {
+    const [suggestion] = await db.insert(aiTrainingSuggestions).values(data).returning();
+    return suggestion;
+  }
+
+  async getPendingTrainingSuggestions(): Promise<AiTrainingSuggestion[]> {
+    return await db.select().from(aiTrainingSuggestions)
+      .where(eq(aiTrainingSuggestions.status, 'pending'))
+      .orderBy(desc(aiTrainingSuggestions.createdAt))
+      .limit(50);
+  }
+
+  async updateAiTrainingSuggestion(id: number, updates: Partial<AiTrainingSuggestion>): Promise<AiTrainingSuggestion | undefined> {
+    const [suggestion] = await db.update(aiTrainingSuggestions)
+      .set(updates)
+      .where(eq(aiTrainingSuggestions.id, id))
+      .returning();
+    return suggestion;
   }
 }
 

@@ -27,6 +27,7 @@ import Services from "@/pages/services";
 import Casino from "@/pages/casino";
 import BankAccounts from "@/pages/bank-accounts";
 import ManualWithdrawal from "@/pages/manual-withdrawal";
+import Help from "@/pages/help";
 
 function ProtectedRoute({
   component: Component,
@@ -126,6 +127,9 @@ function Router() {
       </Route>
       <Route path="/manual-withdrawal">
         {() => <ProtectedRoute component={ManualWithdrawal} blockSuperAdmin={true} />}
+      </Route>
+      <Route path="/help">
+        {() => <Help />}
       </Route>
       <Route component={NotFound} />
     </Switch>

@@ -14,6 +14,10 @@ const SENSITIVE_PATTERNS = [
   /api[_-]?token/i,
   /bearer\s+[a-zA-Z0-9_-]+/i,
   /authorization:\s*bearer/i,
+  /access[_-]?token/i,
+  /refresh[_-]?token/i,
+  /jwt[_-]?token/i,
+  /auth[_-]?token/i,
 
   // Database and connection strings
   /postgres:\/\//i,
@@ -21,17 +25,24 @@ const SENSITIVE_PATTERNS = [
   /mongodb:\/\//i,
   /database_url/i,
   /connection_string/i,
+  /redis:\/\//i,
 
   // Secrets and credentials
   /secret[_-]?key/i,
   /private[_-]?key/i,
   /password\s*[=:]/i,
   /credential/i,
+  /\$2[aby]\$\d+\$/i, // bcrypt hash pattern
+  /\$argon2/i, // argon2 hash pattern
+  /sha256:/i,
+  /sha512:/i,
 
   // Internal system info
   /\.env/i,
   /process\.env/i,
   /internal_api/i,
+  /server[_-]?config/i,
+  /admin[_-]?password/i,
 
   // PayVerse specific
   /paygram[_-]?api[_-]?token/i,
@@ -40,6 +51,10 @@ const SENSITIVE_PATTERNS = [
   /smtp[_-]?pass/i,
   /pin[_-]?hash/i,
   /escrow[_-]?account/i,
+  /openrouter[_-]?api/i,
+  /telegram[_-]?bot[_-]?token/i,
+  /webhook[_-]?secret/i,
+  /encryption[_-]?key/i,
 ];
 
 // Prompt injection patterns
@@ -50,29 +65,60 @@ const INJECTION_PATTERNS = [
   /forget\s+(everything|your\s+instructions)/i,
   /new\s+instructions/i,
   /disregard\s+(all|previous)/i,
+  /override\s+(your|the)\s+(rules|instructions)/i,
+  /pretend\s+(you\s+are|to\s+be)/i,
+  /act\s+as\s+(if|a)/i,
+  /roleplay\s+as/i,
 
   // System prompt extraction
   /what\s+(is|are)\s+your\s+(system\s+)?prompt/i,
   /show\s+me\s+your\s+instructions/i,
   /reveal\s+your\s+prompt/i,
   /print\s+system\s+message/i,
+  /repeat\s+your\s+(initial|system)/i,
+  /what\s+were\s+you\s+told/i,
+  /display\s+(your|the)\s+rules/i,
 
   // Jailbreak attempts
   /dan\s+mode/i,
   /developer\s+mode/i,
   /jailbreak/i,
   /do\s+anything\s+now/i,
+  /grandma\s+mode/i,
+  /sudo\s+mode/i,
+  /god\s+mode/i,
+  /unrestricted\s+mode/i,
 
   // Code execution attempts
   /eval\s*\(/i,
   /exec\s*\(/i,
   /__import__/i,
   /subprocess/i,
+  /os\.system/i,
+  /shell_exec/i,
+
+  // Credential extraction attempts
+  /give\s+me\s+(the\s+)?(api|admin|user)\s*(key|password|token|secret)/i,
+  /list\s+(all\s+)?(user|admin)\s*passwords/i,
+  /show\s+(me\s+)?(database|db)\s*(password|credentials)/i,
+  /extract\s+(user|admin)\s*credentials/i,
+  /dump\s+(the\s+)?(database|users|passwords)/i,
+  /access\s+(other|another)\s+user('s)?\s+(account|data|balance)/i,
+  /bypass\s+(authentication|security|pin)/i,
+  /hack\s+(into|the)/i,
+  /exploit\s+(the|this)/i,
+
+  // Social engineering attempts
+  /i\s+am\s+(an?\s+)?(admin|developer|owner|support)/i,
+  /testing\s+(the\s+)?security/i,
+  /authorized\s+to\s+access/i,
+  /emergency\s+override/i,
+  /maintenance\s+mode/i,
 ];
 
 // Rate limits by role (requests per hour)
 const RATE_LIMITS: Record<string, number> = {
-  public: 10,
+  public: 25,
   user: 50,
   admin: 200,
   super_admin: 500,
@@ -157,7 +203,7 @@ export function filterOutput(output: string): string {
 
   // Replace connection strings
   filtered = filtered.replace(
-    /(postgres|mysql|mongodb):\/\/[^\s'"]+/gi,
+    /(postgres|mysql|mongodb|redis):\/\/[^\s'"]+/gi,
     "[REDACTED_CONNECTION_STRING]"
   );
 
@@ -165,6 +211,46 @@ export function filterOutput(output: string): string {
   filtered = filtered.replace(
     /bearer\s+[a-zA-Z0-9_-]{20,}/gi,
     "Bearer [REDACTED]"
+  );
+
+  // Replace bcrypt/argon2 password hashes
+  filtered = filtered.replace(
+    /\$2[aby]\$\d+\$[./A-Za-z0-9]{53}/g,
+    "[REDACTED_HASH]"
+  );
+  filtered = filtered.replace(
+    /\$argon2[id]+\$[^\s'"]+/gi,
+    "[REDACTED_HASH]"
+  );
+
+  // Replace JWT tokens
+  filtered = filtered.replace(
+    /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g,
+    "[REDACTED_JWT]"
+  );
+
+  // Replace email:password patterns
+  filtered = filtered.replace(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+):([^\s]+)/g,
+    "$1:[REDACTED]"
+  );
+
+  // Replace PIN hashes or any 6-digit sensitive codes in context
+  filtered = filtered.replace(
+    /pin[_-]?hash['":\s]+[a-zA-Z0-9$./]+/gi,
+    "pin_hash: [REDACTED]"
+  );
+
+  // Replace Telegram bot tokens
+  filtered = filtered.replace(
+    /\d{8,10}:[a-zA-Z0-9_-]{35}/g,
+    "[REDACTED_BOT_TOKEN]"
+  );
+
+  // Replace any hex strings that look like secrets (32+ chars)
+  filtered = filtered.replace(
+    /['"]\s*[:=]\s*['"]?[a-f0-9]{32,}['"]?/gi,
+    '"[REDACTED_SECRET]"'
   );
 
   return filtered;

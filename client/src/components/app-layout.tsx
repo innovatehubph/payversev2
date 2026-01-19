@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, ArrowDownToLine, ArrowUpFromLine, Send, Clock, LogOut, User, Shield, Settings, ChevronDown, LayoutGrid, UserCheck } from "lucide-react";
+import { Home, ArrowDownToLine, ArrowUpFromLine, Send, Clock, LogOut, User, Shield, Settings, ChevronDown, LayoutGrid, UserCheck, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import payverseLogo from "@assets/payverse_logo.png";
 import { useAuth } from "@/lib/auth-context";
@@ -56,6 +56,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     ...(!isSuperAdmin ? [
       { icon: UserCheck, label: "KYC Verification", path: "/kyc", testId: "nav-kyc", type: "link" as const },
     ] : []),
+    // Help & Support - available to all users
+    { icon: HelpCircle, label: "Help & Support", path: "/help", testId: "nav-help", type: "link" as const },
     // Admin-only items
     ...(user?.isAdmin || user?.role === "super_admin" || user?.role === "admin"
       ? [{ icon: Settings, label: "Admin Panel", path: "/admin", testId: "nav-admin", type: "link" as const }]
@@ -180,7 +182,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem 
+            <DropdownMenuItem asChild>
+              <Link href="/help" className="cursor-pointer">
+                <HelpCircle className="mr-2 h-4 w-4" />
+                Help & Support
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               onClick={handleLogout}
               className="text-destructive focus:text-destructive cursor-pointer"
               data-testid="button-logout-mobile"
