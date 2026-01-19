@@ -5,12 +5,13 @@
  */
 
 import { useEffect } from "react";
-import { X, Minimize2, Maximize2, Trash2, Sparkles } from "lucide-react";
+import { X, Minimize2, Maximize2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAiChat } from "@/hooks/use-ai-chat";
 import { ChatMessages } from "./chat-messages";
 import { ChatInput } from "./chat-input";
+import payverseLogo from "@assets/payverse_logo.png";
 
 interface ChatContainerProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export function ChatContainer({
     isStreaming,
     error,
     currentModel,
+    currentAction,
     rateLimit,
     sendMessage,
     clearConversation,
@@ -66,12 +68,14 @@ export function ChatContainer({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b bg-gradient-to-r from-violet-500/10 to-purple-500/10">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-            <Sparkles className="h-4 w-4 text-white" />
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center p-1.5 shadow-md">
+            <img src={payverseLogo} alt="PayVerse" className="w-full h-full object-contain" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold">PayVerse AI</h3>
+            <h3 className="text-sm font-semibold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+              PayVerse AI
+            </h3>
             {!isMinimized && currentModel && (
               <p className="text-[10px] text-muted-foreground">
                 {currentModel.split("/").pop()}
@@ -154,6 +158,7 @@ export function ChatContainer({
               <ChatMessages
                 messages={messages}
                 isStreaming={isStreaming}
+                currentAction={currentAction}
               />
 
               {/* Rate limit warning */}

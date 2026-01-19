@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Wallet, Shield, Zap, Globe, Smartphone, CreditCard, Bitcoin, Send, ChevronDown } from "lucide-react";
 import payverseLogo from "@assets/payverse_logo.png";
+import { ChatFab } from "@/components/ai-chat";
 
 const FloatingElement = ({ children, delay = 0, duration = 3, y = 20, x = 0 }: { 
   children: React.ReactNode; 
@@ -318,6 +319,9 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+
+      {/* AI Chat FAB - available for guests too */}
+      <ChatFab />
     </div>
   );
 }

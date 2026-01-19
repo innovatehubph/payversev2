@@ -8,16 +8,20 @@ import { memo } from "react";
 import { Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "./markdown-renderer";
+import { ChatActionStatus, type ActionStatus } from "./chat-action-status";
 import type { ChatMessage as ChatMessageType } from "@/lib/ai-chat-api";
+import payverseLogo from "@assets/payverse_logo.png";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   isStreaming?: boolean;
+  currentAction?: ActionStatus | null;
 }
 
 export const ChatMessage = memo(function ChatMessage({
   message,
   isStreaming,
+  currentAction,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
 
@@ -31,16 +35,16 @@ export const ChatMessage = memo(function ChatMessage({
       {/* Avatar */}
       <div
         className={cn(
-          "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
+          "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center overflow-hidden",
           isUser
             ? "bg-primary text-primary-foreground"
-            : "bg-gradient-to-br from-violet-500 to-purple-600 text-white"
+            : "bg-slate-900 p-1"
         )}
       >
         {isUser ? (
           <User className="h-4 w-4" />
         ) : (
-          <Bot className="h-4 w-4" />
+          <img src={payverseLogo} alt="AI" className="w-full h-full object-contain" />
         )}
       </div>
 
@@ -60,14 +64,21 @@ export const ChatMessage = memo(function ChatMessage({
         {/* Message content */}
         <div className="text-sm">
           {message.content ? (
-            <MarkdownRenderer content={message.content} />
+            <>
+              <MarkdownRenderer content={message.content} />
+              {/* Show action status below content when streaming */}
+              {isStreaming && currentAction && (
+                <div className="mt-3">
+                  <ChatActionStatus action={currentAction} />
+                </div>
+              )}
+            </>
+          ) : isStreaming && currentAction ? (
+            <ChatActionStatus action={currentAction} />
           ) : isStreaming ? (
-            <div className="flex items-center gap-1">
-              <span className="animate-pulse">Thinking</span>
-              <span className="animate-bounce delay-100">.</span>
-              <span className="animate-bounce delay-200">.</span>
-              <span className="animate-bounce delay-300">.</span>
-            </div>
+            <ChatActionStatus
+              action={{ type: "thinking", message: "Processing your request" }}
+            />
           ) : null}
         </div>
 

@@ -12,6 +12,12 @@ import {
   type ChatRequest,
   type StreamEvent,
 } from "@/lib/ai-chat-api";
+import {
+  type ActionStatus,
+  getThinkingStatus,
+  getActionFromFunction,
+  getCompletingStatus,
+} from "@/components/ai-chat/chat-action-status";
 
 export interface ChatState {
   messages: ChatMessage[];
@@ -20,6 +26,7 @@ export interface ChatState {
   error: string | null;
   sessionId: string | null;
   currentModel: string | null;
+  currentAction: ActionStatus | null;
   rateLimit: {
     remaining: number;
     resetAt?: Date;
@@ -39,6 +46,7 @@ export function useAiChat(options: UseAiChatOptions = {}) {
     error: null,
     sessionId: options.sessionId || null,
     currentModel: null,
+    currentAction: null,
     rateLimit: null,
   });
 
@@ -97,6 +105,7 @@ export function useAiChat(options: UseAiChatOptions = {}) {
       messages: [...prev.messages, userMessage],
       isStreaming: true,
       error: null,
+      currentAction: getThinkingStatus(),
     }));
 
     streamingMessageRef.current = "";
@@ -134,6 +143,9 @@ export function useAiChat(options: UseAiChatOptions = {}) {
 
           setState(prev => ({
             ...prev,
+            currentAction: prev.currentAction?.type === "thinking"
+              ? { type: "generating", message: "Composing response", detail: "Writing..." }
+              : prev.currentAction,
             messages: prev.messages.map((m, i) =>
               i === prev.messages.length - 1
                 ? { ...m, content: streamingMessageRef.current }
@@ -141,23 +153,25 @@ export function useAiChat(options: UseAiChatOptions = {}) {
             ),
           }));
         } else if (event.type === "function_call") {
-          // Show function call indicator
+          // Show animated function call status
+          const functionAction = getActionFromFunction(event.name || "unknown");
           setState(prev => ({
             ...prev,
+            currentAction: functionAction,
             messages: prev.messages.map((m, i) =>
               i === prev.messages.length - 1
-                ? { ...m, content: streamingMessageRef.current + `\n\n*Executing ${event.name}...*` }
+                ? { ...m, content: streamingMessageRef.current }
                 : m
             ),
           }));
         } else if (event.type === "function_result") {
-          // Remove the function call indicator
-          const contentWithoutIndicator = streamingMessageRef.current;
+          // Show completing status
           setState(prev => ({
             ...prev,
+            currentAction: getCompletingStatus(),
             messages: prev.messages.map((m, i) =>
               i === prev.messages.length - 1
-                ? { ...m, content: contentWithoutIndicator }
+                ? { ...m, content: streamingMessageRef.current }
                 : m
             ),
           }));
@@ -165,6 +179,7 @@ export function useAiChat(options: UseAiChatOptions = {}) {
           setState(prev => ({
             ...prev,
             isStreaming: false,
+            currentAction: null,
             error: event.error || "Unknown error",
           }));
           options.onError?.(event.error || "Unknown error");
@@ -173,6 +188,7 @@ export function useAiChat(options: UseAiChatOptions = {}) {
           setState(prev => ({
             ...prev,
             isStreaming: false,
+            currentAction: null,
             rateLimit: event.remaining !== undefined
               ? { remaining: event.remaining }
               : prev.rateLimit,
@@ -184,6 +200,7 @@ export function useAiChat(options: UseAiChatOptions = {}) {
       setState(prev => ({
         ...prev,
         isStreaming: false,
+        currentAction: null,
         error: errorMessage,
       }));
       options.onError?.(errorMessage);
@@ -201,6 +218,7 @@ export function useAiChat(options: UseAiChatOptions = {}) {
       error: null,
       sessionId: null,
       currentModel: null,
+      currentAction: null,
       rateLimit: null,
     });
   }, []);

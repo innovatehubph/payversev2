@@ -479,11 +479,12 @@ router.post("/admin/deposits/:id/reject", authMiddleware, adminMiddleware, admin
 
 export function registerManualDepositRoutes(app: any) {
   app.use("/api/manual", router);
-  
-  app.use("/uploads", (req: Request, res: Response, next: any) => {
-    const uploadsPath = path.join(process.cwd(), "uploads");
-    require("express").static(uploadsPath)(req, res, next);
-  });
-  
+
+  // Serve uploaded files statically (once, not per-request)
+  const uploadsPath = path.join(process.cwd(), "uploads");
+  const express = require("express");
+  app.use("/uploads", express.static(uploadsPath));
+
   console.log("[ManualDeposits] Routes registered");
+  console.log("[ManualDeposits] Serving uploads from:", uploadsPath);
 }

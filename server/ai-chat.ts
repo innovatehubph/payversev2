@@ -106,14 +106,7 @@ const upload = multer({
   fileFilter,
 });
 
-// Optional auth middleware - allows both authenticated and guest users
-function optionalAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  // The request may or may not have a user attached by the main auth middleware
-  // We continue regardless, storing user or null
-  next();
-}
-
-export function registerAIChatRoutes(app: Express, authMiddleware: any) {
+export function registerAIChatRoutes(app: Express, authMiddleware: any, optionalAuthMiddleware: any) {
   console.log("[AI Chat] Registering routes...");
 
   // Check if AI is enabled
@@ -128,7 +121,7 @@ export function registerAIChatRoutes(app: Express, authMiddleware: any) {
   /**
    * POST /api/ai/chat - Send a message and get streaming response
    */
-  app.post("/api/ai/chat", checkAiEnabled, async (req: Request, res: Response) => {
+  app.post("/api/ai/chat", optionalAuthMiddleware, checkAiEnabled, async (req: Request, res: Response) => {
     try {
       // Get user from request (may be null for guests)
       const user: User | null = (req as any).user || null;
@@ -371,7 +364,7 @@ export function registerAIChatRoutes(app: Express, authMiddleware: any) {
   /**
    * GET /api/ai/conversations/:sessionId - Get a specific conversation
    */
-  app.get("/api/ai/conversations/:sessionId", async (req: Request, res: Response) => {
+  app.get("/api/ai/conversations/:sessionId", optionalAuthMiddleware, async (req: Request, res: Response) => {
     try {
       const { sessionId } = req.params;
       const user: User | null = (req as any).user || null;

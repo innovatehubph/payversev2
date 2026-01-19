@@ -7,13 +7,15 @@
 import { useEffect, useRef } from "react";
 import { ChatMessage } from "./chat-message";
 import type { ChatMessage as ChatMessageType } from "@/lib/ai-chat-api";
+import type { ActionStatus } from "./chat-action-status";
 
 interface ChatMessagesProps {
   messages: ChatMessageType[];
   isStreaming: boolean;
+  currentAction?: ActionStatus | null;
 }
 
-export function ChatMessages({ messages, isStreaming }: ChatMessagesProps) {
+export function ChatMessages({ messages, isStreaming, currentAction }: ChatMessagesProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -65,13 +67,17 @@ export function ChatMessages({ messages, isStreaming }: ChatMessagesProps) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {messages.map((message, index) => (
-        <ChatMessage
-          key={message.id || index}
-          message={message}
-          isStreaming={isStreaming && index === messages.length - 1 && message.role === "assistant"}
-        />
-      ))}
+      {messages.map((message, index) => {
+        const isLastAssistant = index === messages.length - 1 && message.role === "assistant";
+        return (
+          <ChatMessage
+            key={message.id || index}
+            message={message}
+            isStreaming={isStreaming && isLastAssistant}
+            currentAction={isStreaming && isLastAssistant ? currentAction : null}
+          />
+        );
+      })}
       <div ref={messagesEndRef} />
     </div>
   );
