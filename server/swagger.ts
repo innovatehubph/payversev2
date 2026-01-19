@@ -2562,24 +2562,32 @@ const options: swaggerJsdoc.Options = {
 
 const swaggerSpec = swaggerJsdoc(options);
 
-// Professional GitBook/MkDocs-style documentation page
+// Professional GitBook/MkDocs-style documentation page with enhanced responsiveness
 const docsHtml = `
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PayVerse Documentation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="description" content="PayVerse Documentation - Complete guide to the Philippine's leading P2P e-wallet platform with PHPT cryptocurrency integration.">
+  <meta name="keywords" content="PayVerse, e-wallet, PHPT, Philippines, P2P, crypto, GCash, Maya, 747 Casino">
+  <meta name="theme-color" content="#5C6AC4">
+  <link rel="icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <title>PayVerse Documentation - E-Wallet Platform Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --primary: #5C6AC4;
       --primary-dark: #4959BD;
+      --primary-light: #7C8AE4;
+      --accent: #00D4AA;
       --bg-primary: #ffffff;
       --bg-secondary: #f6f8fa;
       --bg-sidebar: #f6f8fa;
+      --bg-hero: linear-gradient(135deg, #5C6AC4 0%, #4959BD 50%, #3D4A9E 100%);
       --text-primary: #24292f;
       --text-secondary: #57606a;
       --text-muted: #8b949e;
@@ -2590,13 +2598,19 @@ const docsHtml = `
       --warning: #9a6700;
       --error: #cf222e;
       --info: #0969da;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.07);
+      --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
     }
     [data-theme="dark"] {
       --primary: #7C8AE4;
       --primary-dark: #9BA6F5;
+      --primary-light: #A8B4F0;
+      --accent: #00FFD1;
       --bg-primary: #0d1117;
       --bg-secondary: #161b22;
       --bg-sidebar: #010409;
+      --bg-hero: linear-gradient(135deg, #1a1f35 0%, #0d1117 50%, #161b22 100%);
       --text-primary: #c9d1d9;
       --text-secondary: #8b949e;
       --text-muted: #6e7681;
@@ -2607,43 +2621,73 @@ const docsHtml = `
       --warning: #d29922;
       --error: #f85149;
       --info: #58a6ff;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
+      --shadow-lg: 0 10px 25px rgba(0,0,0,0.5);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; font-size: 15px; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; font-size: 15px; overflow-x: hidden; }
 
     /* Layout */
     .layout { display: flex; min-height: 100vh; }
 
     /* Sidebar */
-    .sidebar { width: 280px; background: var(--bg-sidebar); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; z-index: 100; transition: transform 0.3s; }
+    .sidebar { width: 280px; background: var(--bg-sidebar); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; z-index: 100; transition: transform 0.3s ease-in-out; }
+    .sidebar::-webkit-scrollbar { width: 6px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     .sidebar-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
-    .sidebar-logo { width: 32px; height: 32px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; }
-    .sidebar-title { font-weight: 600; font-size: 16px; }
+    .sidebar-logo { width: 36px; height: 36px; border-radius: 10px; object-fit: contain; }
+    .sidebar-title { font-weight: 700; font-size: 17px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .sidebar-nav { padding: 16px 0; }
     .nav-section { padding: 8px 24px; }
     .nav-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 8px; }
-    .nav-link { display: flex; align-items: center; gap: 10px; padding: 8px 24px; color: var(--text-secondary); text-decoration: none; font-size: 14px; transition: all 0.15s; border-left: 3px solid transparent; }
+    .nav-link { display: flex; align-items: center; gap: 10px; padding: 10px 24px; color: var(--text-secondary); text-decoration: none; font-size: 14px; transition: all 0.15s; border-left: 3px solid transparent; }
     .nav-link:hover { color: var(--text-primary); background: var(--bg-secondary); }
     .nav-link.active { color: var(--primary); background: rgba(92, 106, 196, 0.08); border-left-color: var(--primary); font-weight: 500; }
     .nav-icon { width: 18px; height: 18px; opacity: 0.7; }
+    .nav-badge { font-size: 10px; background: var(--accent); color: #000; padding: 2px 6px; border-radius: 10px; font-weight: 600; margin-left: auto; }
+    .sidebar-close { display: none; position: absolute; top: 16px; right: 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; font-size: 18px; color: var(--text-secondary); }
 
     /* Main Content */
-    .main { flex: 1; margin-left: 280px; }
-    .header { position: sticky; top: 0; background: var(--bg-primary); border-bottom: 1px solid var(--border); padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; z-index: 50; backdrop-filter: blur(8px); }
-    .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; width: 320px; }
+    .main { flex: 1; margin-left: 280px; min-width: 0; }
+    .header { position: sticky; top: 0; background: rgba(255,255,255,0.95); border-bottom: 1px solid var(--border); padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    [data-theme="dark"] .header { background: rgba(13,17,23,0.95); }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; width: 320px; transition: all 0.2s; }
+    .search-box:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(92, 106, 196, 0.1); }
     .search-box input { border: none; background: transparent; outline: none; color: var(--text-primary); width: 100%; font-size: 14px; }
     .search-box input::placeholder { color: var(--text-muted); }
     .header-actions { display: flex; align-items: center; gap: 12px; }
     .theme-toggle { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 14px; color: var(--text-secondary); transition: all 0.15s; }
-    .theme-toggle:hover { background: var(--border-light); }
-    .btn-primary { background: var(--primary); color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: background 0.15s; }
-    .btn-primary:hover { background: var(--primary-dark); }
+    .theme-toggle:hover { background: var(--border-light); border-color: var(--primary); }
+    .btn-primary { background: var(--primary); color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+    .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+    .btn-secondary:hover { border-color: var(--primary); }
+
+    /* Hero Section */
+    .hero { background: var(--bg-hero); color: white; padding: 80px 32px; text-align: center; position: relative; overflow: hidden; }
+    .hero::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"); opacity: 0.5; }
+    .hero-content { position: relative; z-index: 1; max-width: 800px; margin: 0 auto; }
+    .hero-logo { width: 80px; height: 80px; margin-bottom: 24px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+    .hero h1 { font-size: 3rem; font-weight: 800; margin-bottom: 16px; letter-spacing: -0.03em; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    .hero .lead { font-size: 1.25rem; opacity: 0.9; margin-bottom: 32px; max-width: 600px; margin-left: auto; margin-right: auto; }
+    .hero-stats { display: flex; justify-content: center; gap: 48px; margin-top: 40px; flex-wrap: wrap; }
+    .hero-stat { text-align: center; }
+    .hero-stat-value { font-size: 2.5rem; font-weight: 800; display: block; }
+    .hero-stat-label { font-size: 14px; opacity: 0.8; }
+    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .hero-buttons .btn-primary { background: white; color: var(--primary); padding: 12px 24px; font-size: 16px; }
+    .hero-buttons .btn-primary:hover { background: #f0f0f0; }
+    .hero-buttons .btn-secondary { background: transparent; color: white; border-color: rgba(255,255,255,0.3); padding: 12px 24px; font-size: 16px; }
+    .hero-buttons .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: white; }
 
     /* Content Area */
     .content { max-width: 900px; margin: 0 auto; padding: 48px 32px; }
     .content h1 { font-size: 2.25rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em; }
-    .content h2 { font-size: 1.5rem; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .content h2 { font-size: 1.5rem; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); scroll-margin-top: 80px; }
     .content h3 { font-size: 1.125rem; font-weight: 600; margin: 32px 0 12px; }
     .content p { margin: 16px 0; color: var(--text-secondary); }
     .content ul, .content ol { margin: 16px 0 16px 24px; color: var(--text-secondary); }
@@ -2657,11 +2701,21 @@ const docsHtml = `
 
     /* Cards */
     .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 24px 0; }
-    .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; transition: all 0.2s; }
-    .card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-    .card-icon { width: 40px; height: 40px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 16px; }
+    .card-grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; transition: all 0.2s; cursor: pointer; }
+    .card:hover { border-color: var(--primary); box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+    .card-icon { width: 48px; height: 48px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 16px; }
     .card h4 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
     .card p { font-size: 14px; color: var(--text-muted); margin: 0; }
+    .card-link { color: var(--primary); font-size: 13px; font-weight: 500; margin-top: 12px; display: inline-flex; align-items: center; gap: 4px; }
+
+    /* Feature Cards */
+    .feature-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin: 32px 0; }
+    .feature-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 32px; display: flex; gap: 20px; transition: all 0.2s; }
+    .feature-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+    .feature-icon { width: 56px; height: 56px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; }
+    .feature-content h4 { font-size: 1.125rem; font-weight: 600; margin-bottom: 8px; }
+    .feature-content p { font-size: 14px; color: var(--text-muted); margin: 0; }
 
     /* Badges */
     .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; margin: 4px 4px 4px 0; }
@@ -2669,56 +2723,151 @@ const docsHtml = `
     .badge-warning { background: rgba(154, 103, 0, 0.1); color: var(--warning); }
     .badge-info { background: rgba(9, 105, 218, 0.1); color: var(--info); }
     .badge-error { background: rgba(207, 34, 46, 0.1); color: var(--error); }
+    .badge-primary { background: rgba(92, 106, 196, 0.1); color: var(--primary); }
 
     /* Tables */
-    table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14px; }
+    .table-wrapper { overflow-x: auto; margin: 24px 0; border-radius: 8px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 500px; }
     th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { background: var(--bg-secondary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+    th { background: var(--bg-secondary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); position: sticky; top: 0; }
     tr:hover td { background: var(--bg-secondary); }
+    tr:last-child td { border-bottom: none; }
 
     /* Callouts */
     .callout { padding: 16px 20px; border-radius: 8px; margin: 24px 0; border-left: 4px solid; }
     .callout-info { background: rgba(9, 105, 218, 0.05); border-color: var(--info); }
     .callout-warning { background: rgba(154, 103, 0, 0.05); border-color: var(--warning); }
     .callout-success { background: rgba(26, 127, 55, 0.05); border-color: var(--success); }
+    .callout-error { background: rgba(207, 34, 46, 0.05); border-color: var(--error); }
     .callout-title { font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
     .callout p { margin: 0; font-size: 14px; }
 
     /* Steps */
     .steps { counter-reset: step; margin: 24px 0; }
     .step { display: flex; gap: 16px; margin: 20px 0; padding-left: 8px; }
-    .step::before { counter-increment: step; content: counter(step); min-width: 28px; height: 28px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+    .step::before { counter-increment: step; content: counter(step); min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+    .step-content { flex: 1; }
     .step-content h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
     .step-content p { margin: 0; font-size: 14px; color: var(--text-muted); }
 
-    /* Footer */
-    .footer { border-top: 1px solid var(--border); padding: 32px; margin-top: 64px; text-align: center; color: var(--text-muted); font-size: 14px; }
-    .footer a { color: var(--primary); text-decoration: none; }
+    /* Sitemap Tree */
+    .sitemap { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 24px 0; }
+    .sitemap-tree { font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.8; }
+    .sitemap-tree .folder { color: var(--primary); font-weight: 600; }
+    .sitemap-tree .page { color: var(--text-secondary); }
+    .sitemap-tree .indent { margin-left: 20px; border-left: 1px dashed var(--border); padding-left: 16px; }
 
-    /* Mobile */
-    .menu-toggle { display: none; background: none; border: none; padding: 8px; cursor: pointer; }
+    /* Tutorial Cards */
+    .tutorial-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 16px 0; display: flex; gap: 20px; align-items: flex-start; transition: all 0.2s; }
+    .tutorial-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+    .tutorial-number { min-width: 40px; height: 40px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 16px; }
+    .tutorial-content { flex: 1; }
+    .tutorial-content h4 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+    .tutorial-content p { font-size: 14px; color: var(--text-muted); margin: 0 0 12px 0; }
+    .tutorial-meta { display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); }
+    .tutorial-meta span { display: flex; align-items: center; gap: 4px; }
+
+    /* Tabs */
+    .tabs { border-bottom: 1px solid var(--border); margin-bottom: 24px; display: flex; gap: 0; overflow-x: auto; }
+    .tab { padding: 12px 20px; color: var(--text-secondary); text-decoration: none; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; }
+    .tab:hover { color: var(--text-primary); }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    /* Footer */
+    .footer { border-top: 1px solid var(--border); padding: 48px 32px; margin-top: 64px; background: var(--bg-secondary); }
+    .footer-content { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 48px; }
+    .footer-brand { }
+    .footer-brand img { width: 40px; height: 40px; margin-bottom: 16px; border-radius: 10px; }
+    .footer-brand p { font-size: 14px; color: var(--text-muted); margin: 0; }
+    .footer-links h5 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 16px; }
+    .footer-links a { display: block; font-size: 14px; color: var(--text-secondary); text-decoration: none; margin-bottom: 10px; transition: color 0.15s; }
+    .footer-links a:hover { color: var(--primary); }
+    .footer-bottom { max-width: 900px; margin: 32px auto 0; padding-top: 24px; border-top: 1px solid var(--border); text-align: center; font-size: 13px; color: var(--text-muted); }
+
+    /* Mobile Menu Toggle */
+    .menu-toggle { display: none; background: none; border: none; padding: 8px; cursor: pointer; font-size: 24px; color: var(--text-primary); }
+    .mobile-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 99; opacity: 0; transition: opacity 0.3s; }
+    .mobile-overlay.active { opacity: 1; }
+
+    /* Responsive Breakpoints */
+    @media (max-width: 1024px) {
+      .sidebar { width: 260px; }
+      .main { margin-left: 260px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .footer-content { grid-template-columns: 1fr 1fr; gap: 32px; }
+    }
+
     @media (max-width: 768px) {
-      .sidebar { transform: translateX(-100%); }
+      .sidebar { transform: translateX(-100%); width: 280px; box-shadow: var(--shadow-lg); }
       .sidebar.open { transform: translateX(0); }
+      .sidebar-close { display: flex; align-items: center; justify-content: center; }
+      .mobile-overlay { display: block; pointer-events: none; }
+      .mobile-overlay.active { pointer-events: auto; }
       .main { margin-left: 0; }
       .menu-toggle { display: block; }
-      .search-box { width: 200px; }
+      .header { padding: 12px 16px; }
+      .search-box { width: 100%; max-width: 200px; }
+      .header-actions .btn-primary span { display: none; }
+      .content { padding: 32px 20px; }
+      .hero { padding: 60px 20px; }
+      .hero h1 { font-size: 2rem; }
+      .hero .lead { font-size: 1rem; }
+      .hero-stats { gap: 24px; }
+      .hero-stat-value { font-size: 1.75rem; }
+      .card-grid { grid-template-columns: 1fr; }
+      .feature-grid { gap: 16px; }
+      .feature-card { flex-direction: column; padding: 24px; }
+      .tutorial-card { flex-direction: column; }
+      .footer-content { grid-template-columns: 1fr; gap: 32px; text-align: center; }
+      .footer-brand { order: -1; }
+    }
+
+    @media (max-width: 480px) {
+      .header-actions { gap: 8px; }
+      .theme-toggle { padding: 8px; }
+      .theme-toggle span { display: none; }
+      .search-box { display: none; }
       .content { padding: 24px 16px; }
+      .hero { padding: 48px 16px; }
+      .hero h1 { font-size: 1.75rem; }
+      .hero-buttons { flex-direction: column; width: 100%; }
+      .hero-buttons .btn-primary, .hero-buttons .btn-secondary { width: 100%; justify-content: center; }
+      .hero-stats { flex-direction: column; gap: 16px; }
+      pre { padding: 12px; font-size: 12px; }
+      .table-wrapper { margin: 16px -16px; border-radius: 0; border-left: none; border-right: none; }
+      .steps .step { flex-direction: column; gap: 12px; }
+      .step::before { margin: 0; }
+    }
+
+    /* Print Styles */
+    @media print {
+      .sidebar, .header, .menu-toggle, .hero-buttons { display: none !important; }
+      .main { margin-left: 0 !important; }
+      .content { max-width: 100%; padding: 0; }
+      .hero { padding: 32px; }
     }
   </style>
 </head>
 <body>
+  <div class="mobile-overlay" id="overlay" onclick="closeSidebar()"></div>
   <div class="layout">
     <aside class="sidebar" id="sidebar">
+      <button class="sidebar-close" onclick="closeSidebar()">&times;</button>
       <div class="sidebar-header">
-        <div class="sidebar-logo">P</div>
+        <img src="/payverse_logo.png" alt="PayVerse" class="sidebar-logo">
         <span class="sidebar-title">PayVerse Docs</span>
       </div>
       <nav class="sidebar-nav">
         <div class="nav-section">
-          <div class="nav-section-title">Getting Started</div>
-          <a href="#introduction" class="nav-link active">Introduction</a>
+          <div class="nav-section-title">Overview</div>
+          <a href="#home" class="nav-link active">Home</a>
+          <a href="#introduction" class="nav-link">Introduction</a>
           <a href="#quickstart" class="nav-link">Quick Start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Guides</div>
+          <a href="#tutorials" class="nav-link">Tutorials <span class="nav-badge">New</span></a>
+          <a href="#sitemap" class="nav-link">App Structure</a>
           <a href="#authentication" class="nav-link">Authentication</a>
         </div>
         <div class="nav-section">
@@ -2748,43 +2897,323 @@ const docsHtml = `
 
     <main class="main">
       <header class="header">
-        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
-        <div class="search-box">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" placeholder="Search documentation..." disabled>
+        <div class="header-left">
+          <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" placeholder="Search documentation..." id="searchInput" onkeyup="handleSearch(event)">
+          </div>
         </div>
         <div class="header-actions">
-          <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
-          <a href="/api/swagger" class="btn-primary">API Docs</a>
+          <button class="theme-toggle" onclick="toggleTheme()"><span>🌙</span> <span>Dark</span></button>
+          <a href="/api/swagger" class="btn-primary"><span>API</span> Docs</a>
         </div>
       </header>
 
-      <article class="content">
-        <section id="introduction">
+      <!-- Hero Section -->
+      <section class="hero" id="home">
+        <div class="hero-content">
+          <img src="/payverse_logo.png" alt="PayVerse" class="hero-logo">
           <h1>PayVerse Documentation</h1>
-          <p class="lead">Complete guide to using the PayVerse E-Wallet Platform - a production-ready P2P payment system with PHPT cryptocurrency integration.</p>
+          <p class="lead">The complete guide to Philippine's leading P2P e-wallet platform with PHPT cryptocurrency integration, QRPH payments, and 747Live casino support.</p>
+          <div class="hero-buttons">
+            <a href="#quickstart" class="btn-primary">Get Started</a>
+            <a href="/api/swagger" class="btn-secondary">API Reference</a>
+          </div>
+          <div class="hero-stats">
+            <div class="hero-stat">
+              <span class="hero-stat-value">50+</span>
+              <span class="hero-stat-label">API Endpoints</span>
+            </div>
+            <div class="hero-stat">
+              <span class="hero-stat-value">1:1</span>
+              <span class="hero-stat-label">PHP to PHPT Rate</span>
+            </div>
+            <div class="hero-stat">
+              <span class="hero-stat-value">24/7</span>
+              <span class="hero-stat-label">AI Support</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-          <div class="card-grid">
+      <article class="content">
+        <!-- Introduction Section -->
+        <section id="introduction">
+          <h2>Introduction</h2>
+          <p class="lead">PayVerse is a production-ready P2P e-wallet application designed for the Philippine market, enabling secure peer-to-peer money transfers, wallet management, and cryptocurrency integration.</p>
+
+          <div class="feature-grid">
+            <div class="feature-card">
+              <div class="feature-icon">💸</div>
+              <div class="feature-content">
+                <h4>Instant P2P Transfers</h4>
+                <p>Send PHPT instantly to any PayVerse user. All transfers are protected with 6-digit PIN verification and real-time notifications.</p>
+              </div>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">📱</div>
+              <div class="feature-content">
+                <h4>QRPH Integration</h4>
+                <p>Cash in via InstaPay/PESONet QR codes and cash out directly to GCash, Maya, or GrabPay at a 1:1 PHP to PHPT rate.</p>
+              </div>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🎰</div>
+              <div class="feature-content">
+                <h4>747Live Casino</h4>
+                <p>Buy and sell casino chips instantly. Supports both players and agents with OTP verification and balance checks.</p>
+              </div>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🤖</div>
+              <div class="feature-content">
+                <h4>AI-Powered Support</h4>
+                <p>Get instant help from our intelligent AI assistant that understands the app layout and can guide you through any feature.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-title">💡 What is PHPT?</div>
+            <p>PHPT (Philippine Peso Token) is a 1:1 stablecoin pegged to the Philippine Peso. It's managed through PayGram and serves as the primary currency within PayVerse for all transactions.</p>
+          </div>
+        </section>
+
+        <!-- Tutorials Section -->
+        <section id="tutorials">
+          <h2>Tutorials</h2>
+          <p>Step-by-step guides to help you get the most out of PayVerse.</p>
+
+          <div class="tutorial-card">
+            <div class="tutorial-number">1</div>
+            <div class="tutorial-content">
+              <h4>Getting Started: Create Your Account</h4>
+              <p>Learn how to register, verify your email, set up your PIN, and complete basic account setup.</p>
+              <div class="tutorial-meta">
+                <span>⏱️ 5 min read</span>
+                <span>👤 Beginner</span>
+              </div>
+              <div class="steps" style="margin-top: 16px;">
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Register Your Account</h4>
+                    <p>Visit payverse.ph and click "Sign Up". Enter your full name, email, username, and create a strong password.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Verify Your Email</h4>
+                    <p>Check your inbox for a welcome email from PayVerse. Click the verification link to activate your account.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Set Up Your PIN</h4>
+                    <p>Create a 6-digit PIN that will be required for all financial transactions. Keep this PIN secure and never share it.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tutorial-card">
+            <div class="tutorial-number">2</div>
+            <div class="tutorial-content">
+              <h4>Adding Funds to Your Wallet</h4>
+              <p>Multiple ways to top up your PHPT balance - via QRPH, manual deposit, or Telegram PayGram.</p>
+              <div class="tutorial-meta">
+                <span>⏱️ 3 min read</span>
+                <span>💰 Deposits</span>
+              </div>
+              <div class="steps" style="margin-top: 16px;">
+                <div class="step">
+                  <div class="step-content">
+                    <h4>QRPH Cash In (Recommended)</h4>
+                    <p>Go to Dashboard → Top Up → QRPH. Enter the amount and scan the generated QR code with your bank app. PHPT is credited instantly after payment.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Manual Deposit</h4>
+                    <p>Go to Dashboard → Top Up → Manual. Select a payment method (GCash/Maya), send payment, and upload your proof of payment for admin approval.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Telegram Top Up</h4>
+                    <p>Connect your PayGram wallet via Telegram, then create an invoice to top up directly from your Telegram balance.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tutorial-card">
+            <div class="tutorial-number">3</div>
+            <div class="tutorial-content">
+              <h4>Sending Money to Other Users</h4>
+              <p>Learn how to send PHPT to friends, family, or business contacts instantly.</p>
+              <div class="tutorial-meta">
+                <span>⏱️ 2 min read</span>
+                <span>💸 Transfers</span>
+              </div>
+              <div class="steps" style="margin-top: 16px;">
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Find the Recipient</h4>
+                    <p>Go to Dashboard → Send Money. Search for the recipient by username or email address.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Enter Amount & Note</h4>
+                    <p>Enter the amount to send and optionally add a note (e.g., "Payment for lunch").</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Confirm with PIN</h4>
+                    <p>Review the transaction details and enter your 6-digit PIN to confirm. The transfer is instant!</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tutorial-card">
+            <div class="tutorial-number">4</div>
+            <div class="tutorial-content">
+              <h4>Using 747Live Casino Integration</h4>
+              <p>Connect your 747Live account and buy/sell chips directly through PayVerse.</p>
+              <div class="tutorial-meta">
+                <span>⏱️ 5 min read</span>
+                <span>🎰 Casino</span>
+              </div>
+              <div class="steps" style="margin-top: 16px;">
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Connect Your 747Live Account</h4>
+                    <p>Go to Casino tab → Connect Account. Enter your 747Live username and verify via OTP or balance check.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Buy Chips (Deposit)</h4>
+                    <p>Enter the chip amount to buy and confirm with your PIN. PHPT is deducted and chips are credited to your casino account instantly.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step-content">
+                    <h4>Sell Chips (Withdraw)</h4>
+                    <p>Enter the chip amount to sell. Chips are deducted from your casino account and PHPT is credited to your PayVerse wallet.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Sitemap / App Structure -->
+        <section id="sitemap">
+          <h2>App Structure & Sitemap</h2>
+          <p>Understand how PayVerse is organized with this comprehensive sitemap and wireframe overview.</p>
+
+          <h3>Application Pages</h3>
+          <div class="sitemap">
+            <div class="sitemap-tree">
+              <div class="folder">📁 PayVerse App</div>
+              <div class="indent">
+                <div class="folder">📁 Public Pages</div>
+                <div class="indent">
+                  <div class="page">📄 / - Landing Page (Login/Register)</div>
+                  <div class="page">📄 /auth - Authentication Pages</div>
+                  <div class="page">📄 /docs - Documentation (You are here)</div>
+                  <div class="page">📄 /api/swagger - API Documentation</div>
+                </div>
+                <div class="folder">📁 User Dashboard</div>
+                <div class="indent">
+                  <div class="page">📄 /dashboard - Main Dashboard & Balance</div>
+                  <div class="page">📄 /dashboard/send - Send PHPT to Users</div>
+                  <div class="page">📄 /dashboard/topup - Top Up (QRPH/Manual/Telegram)</div>
+                  <div class="page">📄 /dashboard/withdraw - Withdraw to Bank/E-wallet</div>
+                  <div class="page">📄 /dashboard/transactions - Transaction History</div>
+                  <div class="page">📄 /dashboard/casino - 747Live Casino Integration</div>
+                  <div class="page">📄 /dashboard/settings - Account Settings</div>
+                  <div class="page">📄 /dashboard/security - PIN & Password Management</div>
+                  <div class="page">📄 /dashboard/kyc - KYC Verification</div>
+                  <div class="page">📄 /dashboard/help - Help & Support (AI Chat)</div>
+                </div>
+                <div class="folder">📁 Admin Panel</div>
+                <div class="indent">
+                  <div class="page">📄 /admin - Admin Dashboard & Stats</div>
+                  <div class="page">📄 /admin/users - User Management</div>
+                  <div class="page">📄 /admin/transactions - All Transactions</div>
+                  <div class="page">📄 /admin/deposits - Manual Deposit Approvals</div>
+                  <div class="page">📄 /admin/withdrawals - Withdrawal Processing</div>
+                  <div class="page">📄 /admin/kyc - KYC Review & Approval</div>
+                  <div class="page">📄 /admin/casino - Casino Transaction Management</div>
+                  <div class="page">📄 /admin/settings - System Settings</div>
+                  <div class="page">📄 /admin/faqs - FAQ Management</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3>User Flow Diagram</h3>
+          <div class="card-grid card-grid-3">
             <div class="card">
-              <div class="card-icon">💸</div>
-              <h4>P2P Transfers</h4>
-              <p>Send PHPT instantly to any PayVerse user with PIN protection.</p>
+              <div class="card-icon">🔐</div>
+              <h4>Authentication</h4>
+              <p>Register → Email Verify → Login → PIN Setup → Dashboard</p>
             </div>
             <div class="card">
-              <div class="card-icon">📱</div>
-              <h4>QRPH Integration</h4>
-              <p>Cash in via InstaPay/PESONet, cash out to GCash, Maya, GrabPay.</p>
+              <div class="card-icon">💰</div>
+              <h4>Top Up Flow</h4>
+              <p>Select Method → Enter Amount → Pay → Confirm → Balance Updated</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">💸</div>
+              <h4>Transfer Flow</h4>
+              <p>Search User → Enter Amount → Add Note → PIN Verify → Complete</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">🏧</div>
+              <h4>Withdraw Flow</h4>
+              <p>Select Bank → Enter Amount → PIN Verify → Admin Process → Credited</p>
             </div>
             <div class="card">
               <div class="card-icon">🎰</div>
-              <h4>747 Casino</h4>
-              <p>Buy and sell casino chips for players and agents.</p>
+              <h4>Casino Flow</h4>
+              <p>Connect Account → Verify OTP → Buy/Sell Chips → PIN Confirm</p>
             </div>
             <div class="card">
-              <div class="card-icon">🔐</div>
-              <h4>Secure by Design</h4>
-              <p>PIN verification, email OTP, and KYC for large transfers.</p>
+              <div class="card-icon">✅</div>
+              <h4>KYC Flow</h4>
+              <p>Upload ID → Take Selfie → Submit → Admin Review → Approved</p>
             </div>
+          </div>
+
+          <h3>API Architecture</h3>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Category</th><th>Base Path</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Authentication</td><td><code>/api/auth/*</code></td><td>Login, register, logout, session management</td></tr>
+                <tr><td>Wallet</td><td><code>/api/wallet/*</code></td><td>Balance, PayGram connection</td></tr>
+                <tr><td>Transfers</td><td><code>/api/transfer</code></td><td>P2P PHPT transfers</td></tr>
+                <tr><td>QRPH</td><td><code>/api/nexuspay/*</code></td><td>QR-based cash in/out via NexusPay</td></tr>
+                <tr><td>Casino</td><td><code>/api/casino/*</code></td><td>747Live integration, buy/sell chips</td></tr>
+                <tr><td>Crypto</td><td><code>/api/crypto/*</code></td><td>PayGram operations, Telegram top-up</td></tr>
+                <tr><td>Security</td><td><code>/api/security/*</code></td><td>PIN setup/verify, password reset</td></tr>
+                <tr><td>KYC</td><td><code>/api/kyc/*</code></td><td>Document upload, verification status</td></tr>
+                <tr><td>Manual</td><td><code>/api/manual/*</code></td><td>Manual deposits, withdrawals, bank accounts</td></tr>
+                <tr><td>Admin</td><td><code>/api/admin/*</code></td><td>Dashboard, user mgmt, approvals</td></tr>
+                <tr><td>AI</td><td><code>/api/ai/*</code></td><td>Chat assistant, FAQs, feedback</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -2817,6 +3246,11 @@ const docsHtml = `
                 <p>Send PHPT to other users, cash out to e-wallets, or use 747 Casino.</p>
               </div>
             </div>
+          </div>
+
+          <div class="callout callout-success">
+            <div class="callout-title">✅ Pro Tip</div>
+            <p>Complete KYC verification early to unlock higher transaction limits and access all features without restrictions.</p>
           </div>
         </section>
 
@@ -3096,40 +3530,163 @@ Authorization: Bearer your_token
           <p style="margin-top: 24px;"><a href="/api/swagger" class="btn-primary">View Full API Documentation →</a></p>
         </section>
 
-        <footer class="footer">
-          <p>PayVerse Documentation • <a href="mailto:support@payverse.ph">support@payverse.ph</a></p>
-          <p style="margin-top: 8px;">Version 1.0 • Last updated January 2026</p>
-        </footer>
       </article>
+
+      <!-- Enhanced Footer -->
+      <footer class="footer">
+        <div class="footer-content">
+          <div class="footer-brand">
+            <img src="/payverse_logo.png" alt="PayVerse">
+            <p>PayVerse is the Philippines' leading P2P e-wallet platform with PHPT cryptocurrency integration.</p>
+          </div>
+          <div class="footer-links">
+            <h5>Documentation</h5>
+            <a href="#introduction">Introduction</a>
+            <a href="#tutorials">Tutorials</a>
+            <a href="#sitemap">App Structure</a>
+            <a href="/api/swagger">API Reference</a>
+          </div>
+          <div class="footer-links">
+            <h5>Features</h5>
+            <a href="#transfers">P2P Transfers</a>
+            <a href="#qrph">QRPH Payments</a>
+            <a href="#casino">747 Casino</a>
+            <a href="#ai-assistant">AI Assistant</a>
+          </div>
+          <div class="footer-links">
+            <h5>Support</h5>
+            <a href="mailto:support@payverse.ph">Email Support</a>
+            <a href="#ai-assistant">AI Chat</a>
+            <a href="#ai-faqs">FAQs</a>
+            <a href="/">Return to App</a>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <p>© 2026 PayVerse. All rights reserved. • Version 1.0.0 • Last updated January 2026</p>
+        </div>
+      </footer>
     </main>
   </div>
 
   <script>
+    // Theme Toggle
     function toggleTheme() {
       const html = document.documentElement;
       const btn = document.querySelector('.theme-toggle');
-      if (html.getAttribute('data-theme') === 'dark') {
+      const isDark = html.getAttribute('data-theme') === 'dark';
+
+      if (isDark) {
         html.setAttribute('data-theme', 'light');
-        btn.textContent = '🌙 Dark';
+        btn.innerHTML = '<span>🌙</span> <span>Dark</span>';
+        localStorage.setItem('theme', 'light');
       } else {
         html.setAttribute('data-theme', 'dark');
-        btn.textContent = '☀️ Light';
+        btn.innerHTML = '<span>☀️</span> <span>Light</span>';
+        localStorage.setItem('theme', 'dark');
       }
     }
+
+    // Load saved theme
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        document.querySelector('.theme-toggle').innerHTML = '<span>☀️</span> <span>Light</span>';
+      }
+    })();
+
+    // Sidebar Toggle for Mobile
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('overlay').classList.toggle('active');
+      document.body.style.overflow = document.getElementById('sidebar').classList.contains('open') ? 'hidden' : '';
+    }
+
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('overlay').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    // Close sidebar when clicking a link (mobile)
+    document.querySelectorAll('.nav-link').forEach(link => {
+      link.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          closeSidebar();
+        }
+      });
+    });
+
+    // Close sidebar on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSidebar();
+    });
 
     // Highlight active nav link on scroll
     const sections = document.querySelectorAll('section[id]');
     const navLinks = document.querySelectorAll('.nav-link');
-    window.addEventListener('scroll', () => {
-      let current = '';
+
+    function updateActiveLink() {
+      let current = 'home';
+      const scrollY = window.scrollY;
+
       sections.forEach(section => {
-        const top = section.offsetTop - 100;
-        if (scrollY >= top) current = section.getAttribute('id');
+        const top = section.offsetTop - 120;
+        const bottom = top + section.offsetHeight;
+        if (scrollY >= top && scrollY < bottom) {
+          current = section.getAttribute('id');
+        }
       });
+
       navLinks.forEach(link => {
         link.classList.remove('active');
-        if (link.getAttribute('href') === '#' + current) link.classList.add('active');
+        const href = link.getAttribute('href');
+        if (href === '#' + current || (current === 'home' && href === '#home')) {
+          link.classList.add('active');
+        }
       });
+    }
+
+    window.addEventListener('scroll', updateActiveLink);
+    updateActiveLink();
+
+    // Simple Search Functionality
+    function handleSearch(event) {
+      if (event.key === 'Enter') {
+        const query = event.target.value.toLowerCase();
+        if (!query) return;
+
+        // Find first matching section
+        const headings = document.querySelectorAll('h2, h3, h4');
+        for (const heading of headings) {
+          if (heading.textContent.toLowerCase().includes(query)) {
+            heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            break;
+          }
+        }
+      }
+    }
+
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function(e) {
+        const href = this.getAttribute('href');
+        if (href === '#') return;
+
+        e.preventDefault();
+        const target = document.querySelector(href);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          history.pushState(null, null, href);
+        }
+      });
+    });
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 768) {
+        closeSidebar();
+      }
     });
   </script>
 </body>
