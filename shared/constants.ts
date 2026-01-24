@@ -218,6 +218,77 @@ export const CASINO_AGENTS = ["marcthepogi", "teammarc", "bossmarc747"] as const
 export type CasinoAgent = typeof CASINO_AGENTS[number];
 
 // ============================================================================
+// SERVICE FEES
+// ============================================================================
+
+/**
+ * Service fees for various transaction types
+ * - percentage: Fee as a percentage of the transaction amount (e.g., 2 = 2%)
+ * - fixed: Fixed fee amount in PHP
+ * - minFee: Minimum fee to charge
+ * - maxFee: Maximum fee to charge (0 = no limit)
+ *
+ * Total fee = max(minFee, min(maxFee || Infinity, (amount * percentage / 100) + fixed))
+ */
+export const SERVICE_FEES = {
+  // QRPH Cash-In: 1% fee, minimum 5 PHP
+  QRPH_CASHIN: {
+    percentage: 1,
+    fixed: 0,
+    minFee: 5,
+    maxFee: 0, // No maximum
+  },
+  // QRPH Cash-Out: 2% fee, minimum 10 PHP
+  QRPH_CASHOUT: {
+    percentage: 2,
+    fixed: 0,
+    minFee: 10,
+    maxFee: 0,
+  },
+  // Telegram Cash-Out: 2% fee, minimum 10 PHP
+  TELEGRAM_CASHOUT: {
+    percentage: 2,
+    fixed: 0,
+    minFee: 10,
+    maxFee: 0,
+  },
+  // Bank Withdrawal: 1.5% fee, minimum 15 PHP
+  BANK_WITHDRAWAL: {
+    percentage: 1.5,
+    fixed: 0,
+    minFee: 15,
+    maxFee: 0,
+  },
+} as const;
+
+export type ServiceFeeType = keyof typeof SERVICE_FEES;
+
+/**
+ * Calculate service fee for a transaction
+ * @param type - The type of service fee
+ * @param amount - The transaction amount
+ * @returns The calculated fee amount
+ */
+export function calculateServiceFee(type: ServiceFeeType, amount: number): number {
+  const feeConfig = SERVICE_FEES[type];
+  if (!feeConfig) return 0;
+
+  const percentageFee = (amount * feeConfig.percentage) / 100;
+  const totalFee = percentageFee + feeConfig.fixed;
+
+  // Apply minimum
+  let fee = Math.max(feeConfig.minFee, totalFee);
+
+  // Apply maximum if set
+  if (feeConfig.maxFee > 0) {
+    fee = Math.min(feeConfig.maxFee, fee);
+  }
+
+  // Round to 2 decimal places
+  return Math.round(fee * 100) / 100;
+}
+
+// ============================================================================
 // THRESHOLDS & LIMITS
 // ============================================================================
 

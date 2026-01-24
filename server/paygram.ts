@@ -6,6 +6,7 @@ import { authMiddleware } from "./auth";
 import { encrypt, decrypt } from "./encryption";
 import { generateRequestId, verifyUserPin } from "./utils";
 import { getSystemSetting } from "./settings";
+import { calculateServiceFee } from "@shared/constants";
 
 export const PAYGRAM_API_URL = "https://api.pay-gram.org";
 export const TGIN_API_URL = "https://tgin.pay-gram.org/PayGramUsers";
@@ -1545,6 +1546,10 @@ export function registerPaygramRoutes(app: Express) {
         return res.status(400).json({ success: false, message: "Minimum withdrawal is 1 PHPT" });
       }
 
+      // Calculate service fee for Telegram cashout
+      const serviceFee = calculateServiceFee("TELEGRAM_CASHOUT", withdrawAmount);
+      const totalDeduction = withdrawAmount + serviceFee;
+
       const userCliId = getUserCliId(req.user!);
 
       // Get Telegram token - for super_admin use ADMIN_TGIN_TOKEN from system settings
@@ -1572,10 +1577,10 @@ export function registerPaygramRoutes(app: Express) {
       // If no Telegram token, fall back to link-based approach
       if (!telegramToken) {
         console.log(`[Cashout] No Telegram token for user ${userCliId}, using link fallback`);
-        return await handleLinkBasedCashout(req, res, userCliId, withdrawAmount, sharedToken);
+        return await handleLinkBasedCashout(req, res, userCliId, withdrawAmount, serviceFee, totalDeduction, sharedToken);
       }
-      
-      console.log(`[Cashout] User ${userCliId} requesting ${withdrawAmount} PHPT cashout to Telegram (seamless)`);
+
+      console.log(`[Cashout] User ${userCliId} requesting ${withdrawAmount} PHPT + ${serviceFee} fee = ${totalDeduction} total cashout to Telegram (seamless)`);
       
       // Step 1: Create invoice via TGIN for user's Telegram to RECEIVE
       console.log(`[Cashout] Step 1: Creating TGIN invoice for Telegram wallet to receive ${withdrawAmount} PHPT`);
@@ -1600,38 +1605,40 @@ export function registerPaygramRoutes(app: Express) {
         return res.status(400).json({ success: false, message: payResult.message });
       }
       
-      // Success! Record the completed withdrawal
-      console.log(`[Cashout] SUCCESS: ${withdrawAmount} PHPT sent to Telegram user ${telegramUserId}`);
-      
+      // Success! Record the completed withdrawal (including fee)
+      console.log(`[Cashout] SUCCESS: ${withdrawAmount} PHPT (+ ${serviceFee} fee) sent to Telegram user ${telegramUserId}`);
+
       const withdrawal = await storage.createCryptoWithdrawal({
         userId: req.user!.id,
         amount: String(withdrawAmount),
-        fee: "0",
+        fee: String(serviceFee),
         method: "telegram_instant",
         currencyCode: 11
       });
-      
+
       await storage.updateCryptoWithdrawal(withdrawal.id, {
         status: "completed",
         paygramTxId: invoiceCode,
         processedAt: new Date()
       });
-      
+
       await storage.createTransaction({
         senderId: req.user!.id,
-        amount: String(withdrawAmount),
+        amount: String(totalDeduction),
         type: 'crypto_cashout',
         status: 'completed',
         category: 'withdrawal',
-        note: `PHPT cashout to Telegram wallet`,
+        note: `PHPT cashout to Telegram wallet (${serviceFee.toFixed(2)} fee)`,
         walletType: "phpt"
       });
-      
+
       res.json({
         success: true,
-        message: `${withdrawAmount} PHPT has been sent to your Telegram wallet!`,
+        message: `${withdrawAmount.toFixed(2)} PHPT has been sent to your Telegram wallet! (${serviceFee.toFixed(2)} fee charged)`,
         withdrawalId: withdrawal.id,
         amount: withdrawAmount,
+        fee: serviceFee,
+        totalCharged: totalDeduction,
         telegramUserId,
         status: "completed"
       });
@@ -1644,10 +1651,12 @@ export function registerPaygramRoutes(app: Express) {
   
   // Helper function for link-based cashout fallback
   async function handleLinkBasedCashout(
-    req: Request, 
-    res: Response, 
-    userCliId: string, 
-    withdrawAmount: number, 
+    req: Request,
+    res: Response,
+    userCliId: string,
+    withdrawAmount: number,
+    serviceFee: number,
+    totalDeduction: number,
     sharedToken: string
   ) {
     const requestId = generateRequestId();
@@ -1685,7 +1694,7 @@ export function registerPaygramRoutes(app: Express) {
     const withdrawal = await storage.createCryptoWithdrawal({
       userId: req.user!.id,
       amount: String(withdrawAmount),
-      fee: "0",
+      fee: String(serviceFee),
       method: "telegram_link",
       currencyCode: 11
     });

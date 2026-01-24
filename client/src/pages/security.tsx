@@ -41,6 +41,18 @@ export default function Security() {
   const [forgotPinResetting, setForgotPinResetting] = useState(false);
   const [maskedEmail, setMaskedEmail] = useState("");
 
+  // Change Password state
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [changePasswordOtp, setChangePasswordOtp] = useState("");
+  const [changePasswordOtpSent, setChangePasswordOtpSent] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [sendingPasswordOtp, setSendingPasswordOtp] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
   const getAuthHeaders = () => {
     const token = getAuthToken();
     return {
@@ -250,6 +262,88 @@ export default function Security() {
     setForgotPinConfirmPin("");
     setForgotPinOtpSent(false);
     setMaskedEmail("");
+  };
+
+  // Change Password handlers
+  const handleRequestPasswordOtp = async () => {
+    setSendingPasswordOtp(true);
+    try {
+      const response = await fetch("/api/security/password/change/request-otp", {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast({ title: "OTP Sent", description: "Check your email for the verification code" });
+        setChangePasswordOtpSent(true);
+      } else {
+        toast({ title: "Error", description: data.message || "Failed to send OTP", variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to send OTP", variant: "destructive" });
+    } finally {
+      setSendingPasswordOtp(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (currentPassword.length < 6) {
+      toast({ title: "Error", description: "Please enter your current password", variant: "destructive" });
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast({ title: "Error", description: "New password must be at least 8 characters", variant: "destructive" });
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (changePasswordOtp.length !== 6) {
+      toast({ title: "Error", description: "Please enter the 6-digit OTP from your email", variant: "destructive" });
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const response = await fetch("/api/security/password/change", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword: confirmNewPassword,
+          otp: changePasswordOtp
+        })
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast({ title: "Success", description: "Password changed successfully" });
+        setShowChangePassword(false);
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setChangePasswordOtp("");
+        setChangePasswordOtpSent(false);
+      } else {
+        toast({ title: "Error", description: data.message || "Failed to change password", variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to change password", variant: "destructive" });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const handleCancelChangePassword = () => {
+    setShowChangePassword(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setChangePasswordOtp("");
+    setChangePasswordOtpSent(false);
   };
 
   return (
@@ -586,6 +680,142 @@ export default function Security() {
               </CardContent>
             </Card>
 
+            {/* Change Password Card */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Lock className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Password</CardTitle>
+                    <CardDescription>Change your account password</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {showChangePassword ? (
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Current Password</Label>
+                        <div className="relative">
+                          <Input
+                            type={showCurrentPassword ? "text" : "password"}
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            placeholder="Enter current password"
+                            className="pr-10"
+                            data-testid="input-current-password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                            tabIndex={-1}
+                          >
+                            {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>New Password</Label>
+                        <div className="relative">
+                          <Input
+                            type={showNewPassword ? "text" : "password"}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            placeholder="Enter new password (min 8 characters)"
+                            className="pr-10"
+                            data-testid="input-new-password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                            tabIndex={-1}
+                          >
+                            {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Confirm New Password</Label>
+                        <Input
+                          type="password"
+                          value={confirmNewPassword}
+                          onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          placeholder="Confirm new password"
+                          data-testid="input-confirm-new-password"
+                        />
+                      </div>
+
+                      {!changePasswordOtpSent ? (
+                        <Button
+                          onClick={handleRequestPasswordOtp}
+                          disabled={sendingPasswordOtp || currentPassword.length < 6 || newPassword.length < 8 || newPassword !== confirmNewPassword}
+                          className="w-full"
+                          variant="outline"
+                          data-testid="button-request-password-otp"
+                        >
+                          {sendingPasswordOtp ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
+                          Send Verification Code
+                        </Button>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Email Verification Code</Label>
+                            <InputOTP maxLength={6} value={changePasswordOtp} onChange={setChangePasswordOtp} data-testid="input-change-password-otp">
+                              <InputOTPGroup>
+                                <InputOTPSlot index={0} />
+                                <InputOTPSlot index={1} />
+                                <InputOTPSlot index={2} />
+                                <InputOTPSlot index={3} />
+                                <InputOTPSlot index={4} />
+                                <InputOTPSlot index={5} />
+                              </InputOTPGroup>
+                            </InputOTP>
+                            <p className="text-xs text-muted-foreground">Check your email for the verification code</p>
+                          </div>
+
+                          <Button
+                            onClick={handleChangePassword}
+                            disabled={changingPassword || changePasswordOtp.length !== 6}
+                            className="w-full"
+                            data-testid="button-change-password"
+                          >
+                            {changingPassword ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
+                            Change Password
+                          </Button>
+                        </>
+                      )}
+
+                      <Button
+                        variant="ghost"
+                        onClick={handleCancelChangePassword}
+                        className="w-full"
+                        data-testid="button-cancel-change-password"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowChangePassword(true)}
+                    className="w-full"
+                    data-testid="button-show-change-password"
+                  >
+                    <Key className="h-4 w-4 mr-2" />
+                    Change Password
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -600,8 +830,8 @@ export default function Security() {
               </CardHeader>
               <CardContent>
                 <div className={`flex items-center justify-between p-3 rounded-lg border ${
-                  securityStatus?.kycStatus === 'verified' 
-                    ? 'bg-green-50 border-green-200' 
+                  securityStatus?.kycStatus === 'verified'
+                    ? 'bg-green-50 border-green-200'
                     : securityStatus?.kycStatus === 'pending'
                     ? 'bg-amber-50 border-amber-200'
                     : 'bg-gray-50 border-gray-200'
@@ -613,14 +843,14 @@ export default function Security() {
                       <AlertCircle className="h-5 w-5 text-amber-600" />
                     )}
                     <span className={`font-medium ${
-                      securityStatus?.kycStatus === 'verified' 
-                        ? 'text-green-800' 
+                      securityStatus?.kycStatus === 'verified'
+                        ? 'text-green-800'
                         : securityStatus?.kycStatus === 'pending'
                         ? 'text-amber-800'
                         : 'text-gray-800'
                     }`}>
-                      {securityStatus?.kycStatus === 'verified' 
-                        ? 'Verified' 
+                      {securityStatus?.kycStatus === 'verified'
+                        ? 'Verified'
                         : securityStatus?.kycStatus === 'pending'
                         ? 'Pending Review'
                         : 'Not Verified'}

@@ -40,7 +40,10 @@ import {
   XCircle,
   Home,
   PartyPopper,
-  Lock
+  Lock,
+  Headphones,
+  RotateCw,
+  Timer
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -99,6 +102,22 @@ export default function QRPH() {
   const pollCountRef = useRef(0);
   const paymentDataRef = useRef<PaymentData | null>(null);
 
+  // Pending transactions retry state
+  interface PendingTransaction {
+    id: number;
+    referenceNumber: string;
+    amount: string;
+    createdAt: string;
+    externalTxId?: string;
+  }
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [retryLoading, setRetryLoading] = useState<number | null>(null);
+  const [retryCooldowns, setRetryCooldowns] = useState<Record<number, number>>({});
+  const [showContactAdminModal, setShowContactAdminModal] = useState(false);
+  const [cooldownTransaction, setCooldownTransaction] = useState<PendingTransaction | null>(null);
+  const COOLDOWN_SECONDS = 60;
+
   useEffect(() => {
     const params = new URLSearchParams(searchString);
     if (params.get("status") === "success") {
@@ -128,6 +147,105 @@ export default function QRPH() {
       "Authorization": `Bearer ${token}`
     };
   }, []);
+
+  // Fetch user's pending QRPH transactions
+  const fetchPendingTransactions = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const response = await fetch("/api/nexuspay/my-pending", {
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+      if (data.success && data.transactions) {
+        setPendingTransactions(data.transactions);
+      }
+    } catch (error) {
+      console.error("Failed to fetch pending transactions:", error);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, [getAuthHeaders]);
+
+  // Retry checking a pending transaction
+  const handleRetryTransaction = useCallback(async (transaction: PendingTransaction) => {
+    // Check if transaction is on cooldown
+    const remainingCooldown = retryCooldowns[transaction.id];
+    if (remainingCooldown && remainingCooldown > 0) {
+      setCooldownTransaction(transaction);
+      setShowContactAdminModal(true);
+      return;
+    }
+
+    setRetryLoading(transaction.id);
+    try {
+      const response = await fetch(`/api/nexuspay/retry/${transaction.id}`, {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        if (data.credited) {
+          toast({
+            title: "Payment Credited!",
+            description: `${formatPeso(parseFloat(transaction.amount))} has been added to your wallet`,
+          });
+          // Refresh pending transactions
+          fetchPendingTransactions();
+        } else {
+          toast({
+            title: "Still Processing",
+            description: data.message || "Payment is still being processed",
+          });
+        }
+      } else {
+        toast({
+          title: "Retry Failed",
+          description: data.message || "Could not verify payment status",
+          variant: "destructive"
+        });
+      }
+
+      // Set cooldown for this transaction
+      setRetryCooldowns(prev => ({
+        ...prev,
+        [transaction.id]: COOLDOWN_SECONDS
+      }));
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to retry transaction",
+        variant: "destructive"
+      });
+    } finally {
+      setRetryLoading(null);
+    }
+  }, [getAuthHeaders, retryCooldowns, toast, fetchPendingTransactions]);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRetryCooldowns(prev => {
+        const updated: Record<number, number> = {};
+        let hasChanges = false;
+        for (const [id, seconds] of Object.entries(prev)) {
+          if (seconds > 0) {
+            updated[parseInt(id)] = seconds - 1;
+            hasChanges = true;
+          }
+        }
+        return hasChanges ? updated : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch pending transactions on mount and after gateway is ready
+  useEffect(() => {
+    if (gatewayStatus?.configured && gatewayStatus?.authenticated) {
+      fetchPendingTransactions();
+    }
+  }, [gatewayStatus, fetchPendingTransactions]);
 
   const checkStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -657,7 +775,7 @@ export default function QRPH() {
                       ))}
                     </div>
 
-                    <Button 
+                    <Button
                       onClick={handleCashIn}
                       disabled={cashinLoading || !cashinAmount || parseFloat(cashinAmount) < 100}
                       className="w-full h-12 text-base bg-gradient-to-r from-blue-600 to-green-500 hover:from-blue-700 hover:to-green-600"
@@ -669,6 +787,79 @@ export default function QRPH() {
                         <><QrCode className="mr-2 h-5 w-5" />Generate QR Code</>
                       )}
                     </Button>
+
+                    {/* Pending Transactions Section */}
+                    {pendingTransactions.length > 0 && (
+                      <div className="mt-6 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-amber-500" />
+                            Pending Payments
+                          </h4>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={fetchPendingTransactions}
+                            disabled={pendingLoading}
+                            className="h-8 px-2"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${pendingLoading ? 'animate-spin' : ''}`} />
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {pendingTransactions.map((tx) => {
+                            const cooldown = retryCooldowns[tx.id] || 0;
+                            const isOnCooldown = cooldown > 0;
+                            const isRetrying = retryLoading === tx.id;
+
+                            return (
+                              <div
+                                key={tx.id}
+                                className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">
+                                      {formatPeso(parseFloat(tx.amount))}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {tx.referenceNumber}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {new Date(tx.createdAt).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant={isOnCooldown ? "outline" : "secondary"}
+                                    onClick={() => handleRetryTransaction(tx)}
+                                    disabled={isRetrying}
+                                    className={`h-9 min-w-[80px] ${isOnCooldown ? 'text-muted-foreground' : ''}`}
+                                  >
+                                    {isRetrying ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : isOnCooldown ? (
+                                      <>
+                                        <Timer className="h-3 w-3 mr-1" />
+                                        {cooldown}s
+                                      </>
+                                    ) : (
+                                      <>
+                                        <RotateCw className="h-3 w-3 mr-1" />
+                                        Retry
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-center text-muted-foreground">
+                          Paid but not credited? Click Retry to check status.
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
               </CardContent>
@@ -966,6 +1157,68 @@ export default function QRPH() {
                 <Banknote className="mr-2 h-4 w-4" />
               )}
               {cashoutLoading ? "Processing..." : "Confirm Payout"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Contact Admin Modal (shown when retry is on cooldown) */}
+      <Dialog open={showContactAdminModal} onOpenChange={setShowContactAdminModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-center pb-2">
+            <div className="mx-auto h-16 w-16 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center mb-3">
+              <Headphones className="h-8 w-8 text-blue-500" />
+            </div>
+            <DialogTitle className="text-xl">Please Contact Support</DialogTitle>
+            <DialogDescription>
+              You recently checked this transaction. Please wait before trying again.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {cooldownTransaction && (
+              <div className="p-4 rounded-xl bg-muted/50 border text-center">
+                <p className="text-sm text-muted-foreground mb-1">Transaction</p>
+                <p className="font-mono text-sm font-medium">{cooldownTransaction.referenceNumber}</p>
+                <p className="text-lg font-bold mt-2">{formatPeso(parseFloat(cooldownTransaction.amount))}</p>
+              </div>
+            )}
+
+            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+              <div className="flex items-center gap-3 mb-3">
+                <Timer className="h-5 w-5 text-amber-600" />
+                <p className="font-medium text-amber-800 dark:text-amber-300">
+                  Cooldown Active
+                </p>
+              </div>
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                You can retry again in{" "}
+                <span className="font-bold">
+                  {cooldownTransaction ? (retryCooldowns[cooldownTransaction.id] || 0) : 0} seconds
+                </span>
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-blue-800 dark:text-blue-300 mb-1">Need Help?</p>
+                  <p className="text-sm text-blue-700 dark:text-blue-400">
+                    If your payment was successful but not credited, please contact our admin team with your transaction reference number for manual verification.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setShowContactAdminModal(false)}
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

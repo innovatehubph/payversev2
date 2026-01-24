@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { storage } from "./storage";
 import { authMiddleware } from "./auth";
 import { sendOtpEmail } from "./email";
-import { setPinSchema, verifyPinSchema, changePinSchema, passwordResetRequestSchema, passwordResetConfirmSchema } from "@shared/schema";
+import { setPinSchema, verifyPinSchema, changePinSchema, passwordResetRequestSchema, passwordResetConfirmSchema, changePasswordSchema } from "@shared/schema";
 import { sendPasswordChangedEmail, sendPinSetupEmail } from "./email";
 import bcrypt from "bcrypt";
 import { z } from "zod";
@@ -284,6 +284,80 @@ router.post("/pin/reset/confirm", authMiddleware, async (req: Request, res: Resp
       return res.status(400).json({ message: error.errors[0].message });
     }
     res.status(500).json({ message: "Failed to reset PIN" });
+  }
+});
+
+// Change Password - Request OTP (for logged-in users)
+router.post("/password/change/request-otp", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const freshUser = await storage.getUser(req.user!.id);
+    if (!freshUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    const otp = generateSecureOtp();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await storage.createEmailOtp({
+      email: freshUser.email,
+      otp,
+      purpose: "password_change",
+      expiresAt,
+    });
+
+    const sent = await sendOtpEmail(freshUser.email, freshUser.fullName, otp, "password_change");
+
+    if (!sent) {
+      return res.status(500).json({ message: "Failed to send OTP email" });
+    }
+
+    res.json({ success: true, message: "OTP sent to your email" });
+  } catch (error: any) {
+    console.error("[Security] Failed to request password change OTP:", error);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+});
+
+// Change Password - Confirm change with current password + OTP
+router.post("/password/change", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const freshUser = await storage.getUser(req.user!.id);
+    if (!freshUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    const body = changePasswordSchema.parse(req.body);
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(body.currentPassword, freshUser.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    // Verify OTP
+    const otpResult = await storage.verifyEmailOtp(freshUser.email, body.otp, "password_change");
+    if (!otpResult.valid) {
+      return res.status(400).json({ message: otpResult.message || "Invalid or expired OTP" });
+    }
+
+    // Hash and update password
+    const hashedPassword = await bcrypt.hash(body.newPassword, 10);
+    await storage.updateUserPassword(freshUser.id, hashedPassword);
+
+    // Send confirmation email
+    sendPasswordChangedEmail(freshUser.email, freshUser.fullName, "Password").catch(err => {
+      console.error("[Security] Failed to send password change email:", err);
+    });
+
+    console.log(`[Security] Password changed successfully for user ${freshUser.id}`);
+
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (error: any) {
+    console.error("[Security] Failed to change password:", error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.errors[0].message });
+    }
+    res.status(500).json({ message: "Failed to change password" });
   }
 });
 

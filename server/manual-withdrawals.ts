@@ -7,6 +7,7 @@ import { broadcastWithdrawalUpdate, broadcastNewWithdrawal } from "./websocket";
 import { insertUserBankAccountSchema, insertManualWithdrawalSchema, processWithdrawalSchema, rejectWithdrawalSchema } from "@shared/schema";
 import { ZodError } from "zod";
 import { verifyUserPin } from "./utils";
+import { calculateServiceFee } from "@shared/constants";
 
 export function registerManualWithdrawalRoutes(app: Express) {
   // ==================== User Bank Account Endpoints ====================
@@ -153,6 +154,10 @@ export function registerManualWithdrawalRoutes(app: Express) {
         });
       }
 
+      // Calculate service fee for bank withdrawal
+      const serviceFee = calculateServiceFee("BANK_WITHDRAWAL", withdrawAmount);
+      const totalDeduction = withdrawAmount + serviceFee;
+
       // Check PHPT balance
       const userCliId = user.username || user.email;
       const balanceResult = await getUserPhptBalance(userCliId);
@@ -164,16 +169,16 @@ export function registerManualWithdrawalRoutes(app: Express) {
         });
       }
 
-      if (balanceResult.balance < withdrawAmount) {
+      if (balanceResult.balance < totalDeduction) {
         return res.status(400).json({
           success: false,
-          message: `Insufficient balance. You have ₱${balanceResult.balance.toLocaleString()} but need ₱${withdrawAmount.toLocaleString()}.`
+          message: `Insufficient balance. You have ₱${balanceResult.balance.toLocaleString()} but need ₱${totalDeduction.toLocaleString()} (₱${withdrawAmount.toLocaleString()} + ₱${serviceFee.toLocaleString()} fee).`
         });
       }
 
-      // Transfer PHPT from user to admin escrow (hold funds)
-      console.log(`[Manual Withdrawal] Transferring ${withdrawAmount} PHPT from ${userCliId} to escrow`);
-      const transferResult = await transferToAdminWallet(userCliId, withdrawAmount);
+      // Transfer PHPT from user to admin escrow (hold funds including fee)
+      console.log(`[Manual Withdrawal] Transferring ${totalDeduction} PHPT (${withdrawAmount} + ${serviceFee} fee) from ${userCliId} to escrow`);
+      const transferResult = await transferToAdminWallet(userCliId, totalDeduction);
 
       if (!transferResult.success) {
         return res.status(400).json({
@@ -195,23 +200,25 @@ export function registerManualWithdrawalRoutes(app: Express) {
       // Broadcast to admins
       broadcastNewWithdrawal(withdrawalWithDetails);
 
-      // Create transaction record
+      // Create transaction record (includes fee)
       await storage.createTransaction({
         senderId: user.id,
         receiverId: null,
-        amount: withdrawAmount.toString(),
+        amount: totalDeduction.toString(),
         type: "manual_withdrawal",
         status: "pending",
         walletType: "phpt",
-        note: `Manual withdrawal to ${bankAccount.accountType.toUpperCase()} - ${bankAccount.accountNumber}`,
+        note: `Manual withdrawal to ${bankAccount.accountType.toUpperCase()} - ${bankAccount.accountNumber} (₱${serviceFee.toFixed(2)} fee)`,
       });
 
-      console.log(`[Manual Withdrawal] Request created: ID ${withdrawal.id}, Amount: ${withdrawAmount}`);
+      console.log(`[Manual Withdrawal] Request created: ID ${withdrawal.id}, Amount: ${withdrawAmount}, Fee: ${serviceFee}, Total: ${totalDeduction}`);
 
       res.json({
         success: true,
         withdrawal: withdrawalWithDetails,
-        message: "Withdrawal request submitted successfully"
+        fee: serviceFee,
+        totalCharged: totalDeduction,
+        message: `Withdrawal request submitted (₱${serviceFee.toFixed(2)} fee charged)`
       });
     } catch (error: any) {
       console.error("[Manual Withdrawal] Error submitting request:", error);

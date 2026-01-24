@@ -70,19 +70,28 @@ router.post("/request", async (req: Request, res: Response) => {
 router.post("/verify", async (req: Request, res: Response) => {
   try {
     const body = verifyOtpSchema.parse(req.body);
-    
+
     const result = await storage.verifyEmailOtp(body.email, body.otp, body.purpose);
-    
+
     if (!result.valid) {
-      return res.status(400).json({ 
-        success: false, 
-        message: result.message || "Invalid or expired OTP" 
+      return res.status(400).json({
+        success: false,
+        message: result.message || "Invalid or expired OTP"
       });
     }
-    
-    res.json({ 
-      success: true, 
-      message: "OTP verified successfully" 
+
+    // If this is email verification, mark the user's email as verified
+    if (body.purpose === "verification") {
+      const user = await storage.getUserByEmail(body.email);
+      if (user) {
+        await storage.updateUserEmailVerified(user.id, true);
+        console.log(`[OTP] Email verified for user ${user.id}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: body.purpose === "verification" ? "Email verified successfully" : "OTP verified successfully"
     });
   } catch (error: any) {
     console.error("[OTP] Failed to verify OTP:", error);
@@ -90,6 +99,45 @@ router.post("/verify", async (req: Request, res: Response) => {
       return res.status(400).json({ message: error.errors[0].message });
     }
     res.status(500).json({ message: "Failed to verify OTP" });
+  }
+});
+
+// Resend verification email for logged-in users
+router.post("/resend-verification", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+
+    if (user.emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is already verified"
+      });
+    }
+
+    const otp = generateOtp();
+    const expiresAt = getExpiryTime(60); // 1 hour expiry
+
+    await storage.createEmailOtp({
+      email: user.email,
+      otp,
+      purpose: "verification",
+      expiresAt,
+    });
+
+    const sent = await sendOtpEmail(user.email, user.fullName, otp, "verification");
+
+    if (!sent) {
+      return res.status(500).json({ message: "Failed to send verification email. Please try again." });
+    }
+
+    res.json({
+      success: true,
+      message: "Verification email sent",
+      expiresIn: "1 hour"
+    });
+  } catch (error: any) {
+    console.error("[OTP] Failed to resend verification:", error);
+    res.status(500).json({ message: "Failed to send verification email" });
   }
 });
 

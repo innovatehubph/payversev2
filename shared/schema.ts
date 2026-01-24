@@ -31,6 +31,7 @@ import { LIMITS } from "./constants";
  */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
+  accountNumber: text("account_number").unique(), // Unique account number (e.g., PV-1000001)
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   fullName: text("full_name").notNull(),
@@ -51,6 +52,7 @@ export const users = pgTable("users", {
   pinLockedUntil: timestamp("pin_locked_until"),
 
   phoneNumber: text("phone_number"),
+  emailVerified: boolean("email_verified").notNull().default(false), // Email verification status
   kycStatus: text("kyc_status").notNull().default("unverified"),
   isActive: boolean("is_active").notNull().default(true),
 
@@ -73,6 +75,7 @@ export const userTutorials = pgTable("user_tutorials", {
 
 export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
+  referenceNumber: text("reference_number").unique(), // Unique reference number for tracking (e.g., PV-TXN-20240124-ABC123)
   senderId: integer("sender_id").references(() => users.id),
   receiverId: integer("receiver_id").references(() => users.id),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
@@ -582,11 +585,23 @@ export const passwordResetConfirmSchema = z.object({
   path: ["confirmPassword"],
 });
 
+// Change password schema for logged-in users
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(6, "Current password is required"),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string().min(8, "Confirm password must be at least 8 characters"),
+  otp: z.string().length(6, "OTP must be exactly 6 digits").regex(/^\d{6}$/, "OTP must contain only numbers"),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
 export type SetPinInput = z.infer<typeof setPinSchema>;
 export type VerifyPinInput = z.infer<typeof verifyPinSchema>;
 export type ChangePinInput = z.infer<typeof changePinSchema>;
 export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 // User Bank/E-Wallet Accounts for manual withdrawals
 export const userBankAccounts = pgTable("user_bank_accounts", {

@@ -196,7 +196,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    // Generate unique account number: PV-XXXXXXX (7 digits starting from 1000001)
+    const lastUser = await db.select({ id: users.id }).from(users).orderBy(desc(users.id)).limit(1);
+    const nextId = lastUser.length > 0 ? lastUser[0].id + 1 : 1;
+    const accountNumber = `PV-${String(1000000 + nextId).padStart(7, '0')}`;
+
+    const [user] = await db.insert(users).values({
+      ...insertUser,
+      accountNumber,
+    }).returning();
     return user;
   }
 
@@ -315,7 +323,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTransaction(insertTransaction: InsertTransaction): Promise<Transaction> {
-    const [transaction] = await db.insert(transactions).values(insertTransaction).returning();
+    // Generate unique reference number: PV-TXN-YYYYMMDD-XXXXXX
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const referenceNumber = `PV-TXN-${dateStr}-${randomStr}`;
+
+    const [transaction] = await db.insert(transactions).values({
+      ...insertTransaction,
+      referenceNumber,
+    }).returning();
     return transaction;
   }
 
@@ -1005,7 +1022,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async findPendingQrphTransaction(transactionId: string): Promise<Transaction | undefined> {
-    // First check for pending status
+    // First check for pending status - search both externalTxId and note fields
     let [transaction] = await db
       .select()
       .from(transactions)
@@ -1013,10 +1030,13 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(transactions.type, "qrph_cashin"),
           eq(transactions.status, "pending"),
-          ilike(transactions.note, `%${transactionId}%`)
+          or(
+            eq(transactions.externalTxId, transactionId),
+            ilike(transactions.note, `%${transactionId}%`)
+          )
         )
       );
-    
+
     // If not pending, check for processing (being handled by another request)
     if (!transaction) {
       [transaction] = await db
@@ -1026,7 +1046,10 @@ export class DatabaseStorage implements IStorage {
           and(
             eq(transactions.type, "qrph_cashin"),
             eq(transactions.status, "processing"),
-            ilike(transactions.note, `%${transactionId}%`)
+            or(
+              eq(transactions.externalTxId, transactionId),
+              ilike(transactions.note, `%${transactionId}%`)
+            )
           )
         );
     }
@@ -1274,6 +1297,12 @@ export class DatabaseStorage implements IStorage {
   async updateUserPassword(userId: number, hashedPassword: string): Promise<void> {
     await db.update(users)
       .set({ password: hashedPassword })
+      .where(eq(users.id, userId));
+  }
+
+  async updateUserEmailVerified(userId: number, verified: boolean): Promise<void> {
+    await db.update(users)
+      .set({ emailVerified: verified })
       .where(eq(users.id, userId));
   }
 

@@ -19,7 +19,8 @@ import { registerManualWithdrawalRoutes } from "./manual-withdrawals";
 import { registerAIChatRoutes } from "./ai-chat";
 import { seedAdminAccount } from "./seed";
 import { sessions, generateSessionToken, authMiddleware, optionalAuthMiddleware } from "./auth";
-import { initializeEmailTransporter, sendWelcomeEmail, sendTransferReceivedEmail, sendTransferSentEmail } from "./email";
+import { initializeEmailTransporter, sendWelcomeEmail, sendTransferReceivedEmail, sendTransferSentEmail, sendOtpEmail } from "./email";
+import crypto from "crypto";
 import { setupSwagger } from "./swagger";
 import { sanitizeUser, verifyUserPin } from "./utils";
 
@@ -80,10 +81,32 @@ export async function registerRoutes(
         console.error("Failed to send welcome email:", err);
       });
 
+      // Generate and send email verification OTP
+      const verificationOtp = crypto.randomBytes(3).toString('hex').substring(0, 6).replace(/[a-f]/g, (c) => String(parseInt(c, 16) % 10));
+      const otpExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+      storage.createEmailOtp({
+        email: user.email,
+        otp: verificationOtp.padStart(6, '0'),
+        purpose: "verification",
+        expiresAt: otpExpiry,
+      }).then(() => {
+        sendOtpEmail(user.email, user.fullName, verificationOtp.padStart(6, '0'), "verification").catch(err => {
+          console.error("Failed to send verification email:", err);
+        });
+      }).catch(err => {
+        console.error("Failed to create verification OTP:", err);
+      });
+
       const token = generateSessionToken();
       sessions.set(token, user.id);
 
-      res.json({ user: sanitizeUser(user), token });
+      res.json({
+        user: sanitizeUser(user),
+        token,
+        emailVerificationRequired: true,
+        message: "Registration successful! Please check your email to verify your account."
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({ message: error.errors[0].message });
@@ -104,6 +127,11 @@ export async function registerRoutes(
       const validPassword = await bcrypt.compare(password, user.password);
       if (!validPassword) {
         return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Check if account is active
+      if (!user.isActive) {
+        return res.status(403).json({ message: "Your account has been deactivated. Please contact support." });
       }
 
       const token = generateSessionToken();

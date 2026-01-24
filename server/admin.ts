@@ -312,6 +312,32 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Get user's transaction history for admin view
+  app.get("/api/admin/users/:id/transactions", authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const transactions = await storage.getTransactionsByUserId(userId);
+      // Return last 50 transactions with relevant fields
+      const formattedTransactions = transactions.slice(0, 50).map(tx => ({
+        id: tx.id,
+        referenceNumber: tx.referenceNumber,
+        amount: tx.amount,
+        type: tx.type,
+        status: tx.status,
+        createdAt: tx.createdAt,
+        note: tx.note,
+      }));
+      res.json(formattedTransactions);
+    } catch (error: any) {
+      console.error("Admin user transactions error:", error);
+      res.status(500).json({ message: "Failed to fetch user transactions" });
+    }
+  });
+
   app.post("/api/admin/kyc/:userId/approve", authMiddleware, adminMiddleware, sensitiveActionRateLimiter, async (req: Request, res: Response) => {
     try {
       const userId = parseInt(req.params.userId);

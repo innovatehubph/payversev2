@@ -79,12 +79,23 @@ interface AdminUser {
   email: string;
   fullName: string;
   username: string;
+  accountNumber?: string;
   phptBalance: string;
   kycStatus: string;
   isActive: boolean;
   isAdmin: boolean;
   role: "super_admin" | "admin" | "support" | "user";
   createdAt: string;
+}
+
+interface UserDetailTransaction {
+  id: number;
+  referenceNumber?: string;
+  amount: string;
+  type: string;
+  status: string;
+  createdAt: string;
+  note?: string;
 }
 
 interface AuditLog {
@@ -202,6 +213,13 @@ export default function Admin() {
   const [generatedTelegramLink, setGeneratedTelegramLink] = useState<string | null>(null);
 
   // Note: Escrow management is done via Dashboard Top Up/Cash Out buttons for super admin
+
+  // User Detail View state
+  const [userDetailDialogOpen, setUserDetailDialogOpen] = useState(false);
+  const [selectedUserDetail, setSelectedUserDetail] = useState<AdminUser | null>(null);
+  const [userDetailTransactions, setUserDetailTransactions] = useState<UserDetailTransaction[]>([]);
+  const [userDetailKycDocs, setUserDetailKycDocs] = useState<KycDocument[]>([]);
+  const [loadingUserDetail, setLoadingUserDetail] = useState(false);
 
   const { toast } = useToast();
 
@@ -380,12 +398,44 @@ export default function Admin() {
     return true;
   };
 
+  // Handle viewing user details (profile, KYC, transactions)
+  const handleViewUserDetail = async (targetUser: AdminUser) => {
+    setSelectedUserDetail(targetUser);
+    setUserDetailDialogOpen(true);
+    setLoadingUserDetail(true);
+    setUserDetailTransactions([]);
+    setUserDetailKycDocs([]);
+
+    try {
+      // Fetch user's transactions and KYC documents in parallel
+      const [txResponse, kycResponse] = await Promise.all([
+        fetch(`/api/admin/users/${targetUser.id}/transactions`, { headers: getAuthHeaders() }),
+        fetch(`/api/admin/kyc/${targetUser.id}/documents`, { headers: getAuthHeaders() })
+      ]);
+
+      if (txResponse.ok) {
+        const txData = await txResponse.json();
+        setUserDetailTransactions(txData);
+      }
+
+      if (kycResponse.ok) {
+        const kycData = await kycResponse.json();
+        setUserDetailKycDocs(kycData);
+      }
+    } catch (error) {
+      console.error("Failed to fetch user details:", error);
+      toast({ title: "Error", description: "Failed to load user details", variant: "destructive" });
+    } finally {
+      setLoadingUserDetail(false);
+    }
+  };
+
   const handleViewKycDocuments = async (kycUser: AdminUser) => {
     setSelectedKycUser(kycUser);
     setKycDialogOpen(true);
     setLoadingKycDocs(true);
     setKycRejectReason("");
-    
+
     try {
       const response = await fetch(`/api/admin/kyc/${kycUser.id}/documents`, { headers: getAuthHeaders() });
       if (response.ok) {
@@ -974,7 +1024,7 @@ export default function Admin() {
                   <TrendingUp className="h-6 w-6 text-teal-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Volume</p>
+                  <p className="text-sm text-muted-foreground">Total Balances</p>
                   <p className="text-2xl font-bold">₱{parseFloat(stats.totalVolume).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
@@ -1082,6 +1132,15 @@ export default function Admin() {
                           ≈ ₱{parseFloat(u.phptBalance || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                       </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleViewUserDetail(u)}
+                        title="View user details"
+                        data-testid={`button-view-user-${u.id}`}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -2315,6 +2374,152 @@ export default function Admin() {
           {/* Note: Super admin can use Top Up/Cash Out from the Dashboard for escrow operations */}
         </TabsContent>
       </Tabs>
+
+      {/* User Detail Dialog */}
+      <Dialog open={userDetailDialogOpen} onOpenChange={setUserDetailDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>User Details</DialogTitle>
+            <DialogDescription>
+              Profile, KYC documents, and transaction history for {selectedUserDetail?.fullName}
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingUserDetail ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : selectedUserDetail && (
+            <div className="space-y-6">
+              {/* User Profile Section */}
+              <div className="border rounded-lg p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Profile Information
+                </h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Full Name</Label>
+                    <p className="font-medium">{selectedUserDetail.fullName}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Username</Label>
+                    <p className="font-medium">@{selectedUserDetail.username}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Email</Label>
+                    <p className="font-medium">{selectedUserDetail.email}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Account Number</Label>
+                    <p className="font-medium">{selectedUserDetail.accountNumber || "Not assigned"}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">PHPT Balance</Label>
+                    <p className="font-medium">{parseFloat(selectedUserDetail.phptBalance || "0").toLocaleString(undefined, { minimumFractionDigits: 2 })} PHPT</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Account Status</Label>
+                    <div className="flex gap-2 mt-1">
+                      <Badge variant={selectedUserDetail.isActive ? "default" : "destructive"}>
+                        {selectedUserDetail.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                      <Badge variant={selectedUserDetail.kycStatus === "verified" ? "default" : "secondary"}>
+                        KYC: {selectedUserDetail.kycStatus}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Role</Label>
+                    <Badge variant={getRoleBadgeVariant(selectedUserDetail.role)}>
+                      {getRoleLabel(selectedUserDetail.role)}
+                    </Badge>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Registered</Label>
+                    <p className="font-medium">{new Date(selectedUserDetail.createdAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* KYC Documents Section */}
+              <div className="border rounded-lg p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  KYC Documents
+                </h3>
+                {userDetailKycDocs.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No KYC documents submitted</p>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {userDetailKycDocs.map((doc) => {
+                      const docLabels: Record<string, string> = {
+                        government_id: "Government ID",
+                        selfie: "Selfie with ID",
+                        proof_of_address: "Proof of Address"
+                      };
+                      return (
+                        <div key={doc.id} className="border rounded-lg overflow-hidden">
+                          <div className="p-2 bg-muted/50 flex items-center justify-between">
+                            <span className="text-sm font-medium">{docLabels[doc.documentType] || doc.documentType}</span>
+                            <Badge variant={doc.status === "approved" ? "default" : doc.status === "rejected" ? "destructive" : "secondary"} className="text-xs">
+                              {doc.status}
+                            </Badge>
+                          </div>
+                          <div className="aspect-[4/3] bg-muted">
+                            <img
+                              src={doc.documentUrl}
+                              alt={doc.documentType}
+                              className="w-full h-full object-cover cursor-pointer"
+                              onClick={() => window.open(doc.documentUrl, '_blank')}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Transaction History Section */}
+              <div className="border rounded-lg p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  Recent Transactions
+                </h3>
+                {userDetailTransactions.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No transactions found</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {userDetailTransactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between p-2 border rounded text-sm">
+                        <div>
+                          <p className="font-medium">{tx.type.replace(/_/g, ' ').toUpperCase()}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {tx.referenceNumber || `#${tx.id}`} • {new Date(tx.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">{parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} PHPT</p>
+                          <Badge variant={tx.status === "completed" ? "default" : tx.status === "failed" ? "destructive" : "secondary"} className="text-xs">
+                            {tx.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setUserDetailDialogOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={kycDialogOpen} onOpenChange={setKycDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
